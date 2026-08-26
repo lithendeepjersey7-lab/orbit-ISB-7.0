@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Startup Idea Validator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <main>
+    <header>
+      <p class="eyebrow">Milestone 1</p>
+      <h1>AI Startup Idea Validator</h1>
+      <p class="subtitle">
+        Describe your startup idea. The web search agent looks for competitors,
+        market size and existing solutions, then shows you what it found.
+      </p>
+    </header>
+
+    <!-- The idea submission form -->
+    <section class="card">
+      <label for="idea">Your startup idea</label>
+      <textarea id="idea" rows="4"
+        placeholder="An app that helps college students split rent with roommates"></textarea>
+      <button id="submit">Validate idea</button>
+    </section>
+
+    <!-- script.js writes messages here (loading, errors) -->
+    <p id="status"></p>
+
+    <!-- script.js builds the result cards inside here -->
+    <section id="results"></section>
+  </main>
+
+  <script src="script.js"></script>
+
+</body>
+</html>
