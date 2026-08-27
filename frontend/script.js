@@ -1,4 +1,4 @@
-const API_URL = "http://127.0.0.1:8000";
+const API_URL = "https://orbit-isb-7-0-staging.onrender.com";
 
 const ideaBox = document.getElementById("idea");
 const submitButton = document.getElementById("submit");
