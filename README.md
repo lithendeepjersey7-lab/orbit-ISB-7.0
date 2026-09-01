@@ -14,6 +14,16 @@ Built for **Orbit ISB 7.0** — Milestone 1.
 
 ---
 
+## Milestone 1 deliverables
+
+| # | What was required | Where it is |
+|---|---|---|
+| 1 | System architecture — agents, data flow, structure | [`ARCHITECTURE.md`](./ARCHITECTURE.md) |
+| 2 | Idea submission interface — a founder submits an idea and sees results on the same page | [`frontend/`](./frontend) — `index.html`, `script.js`, `style.css` |
+| 3 | Web Search Agent — Python, Tavily API, results returned to the frontend | [`backend/agents/web_search_agent.py`](./backend/agents/web_search_agent.py), exposed by [`backend/main.py`](./backend/main.py) |
+
+---
+
 ## What it does
 
 A founder types their startup idea into a web page. The Web Search Agent
