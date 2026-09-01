@@ -1,4 +1,7 @@
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 from dotenv import load_dotenv
 from tavily import TavilyClient
 
@@ -8,25 +11,40 @@ client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
 
 def build_queries(idea):
-    """Turn one startup idea into three targeted search queries."""
+    """Turn one startup idea into three targeted searches, each with a label."""
     return [
-        f"{idea} competitors and similar startups",
-        f"{idea} market size and industry growth trends",
-        f"existing solutions and customer complaints about {idea}",
+        ("Competitors", f"{idea} competitors and similar startups"),
+        ("Market size & trends", f"{idea} market size and industry growth trends"),
+        ("Customer demand", f"existing solutions and customer complaints about {idea}"),
     ]
+
+
+def run_one_search(angle):
+    """Run one Tavily search. Returns (category, query, response) or None on failure."""
+    category, query = angle
+    try:
+        response = client.search(query, max_results=5, include_answer=True)
+    except Exception as error:
+        print("Search failed for:", query, "-", error)
+        return category, query, None
+    return category, query, response
 
 
 def search_idea(idea):
     """Search the web for evidence about a startup idea."""
-    queries = build_queries(idea)
+    started = time.perf_counter()
+    angles = build_queries(idea)
+
+    # The three searches do not depend on each other, so run them at the same
+    # time instead of one after another.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        searches = list(pool.map(run_one_search, angles))
+
     results = []
     summary = None
 
-    for query in queries:
-        try:
-            response = client.search(query, max_results=5, include_answer=True)
-        except Exception as error:
-            print("Search failed for:", query, "-", error)
+    for category, query, response in searches:
+        if response is None:
             continue
 
         if summary is None and response.get("answer"):
@@ -38,6 +56,7 @@ def search_idea(idea):
                 "url": item.get("url") or "",
                 "snippet": (item.get("content") or "")[:300],
                 "score": item.get("score") or 0,
+                "category": category,
             })
 
     # Best result first
@@ -48,19 +67,27 @@ def search_idea(idea):
     for result in results:
         if result["url"] and result["url"] not in unique:
             unique[result["url"]] = result
+    results = list(unique.values())
+
+    # How many sources ended up in each category
+    counts = {category: 0 for category, _ in angles}
+    for result in results:
+        counts[result["category"]] += 1
 
     return {
         "idea": idea,
-        "queries": queries,
+        "queries": [query for _, query in angles],
+        "categories": [category for category, _ in angles],
+        "counts": counts,
         "summary": summary,
-        "results": list(unique.values()),
+        "results": results,
+        "elapsed_seconds": round(time.perf_counter() - started, 1),
     }
 
 
 if __name__ == "__main__":
     output = search_idea("an app that helps students split rent with roommates")
-    print("Queries:", output["queries"])
-    print("Summary:", output["summary"])
-    print("Results found:", len(output["results"]))
-    for r in output["results"][:3]:
-        print(round(r["score"], 2), r["title"])
+    print("Took:", output["elapsed_seconds"], "seconds")
+    print("Counts:", output["counts"])
+    for r in output["results"][:5]:
+        print(f"  [{r['category']}] {round(r['score'], 2)} {r['title']}")

@@ -30,7 +30,8 @@ async function validateIdea() {
 
     const data = await response.json();
     showResults(data);
-    statusLine.textContent = data.results.length + " sources found";
+    statusLine.textContent =
+      data.results.length + " sources found in " + data.elapsed_seconds + "s";
   } catch (error) {
     statusLine.textContent = "Could not reach the API. Is the backend running?";
     statusLine.className = "error";
@@ -63,25 +64,45 @@ function showResults(data) {
   queries.appendChild(list);
   resultsBox.appendChild(queries);
 
-  for (const result of data.results) {
-    const card = document.createElement("div");
-    card.className = "result";
+  // Show the sources grouped under the angle that found them
+  for (const category of data.categories) {
+    const group = data.results.filter((r) => r.category === category);
+    if (group.length === 0) continue;
 
-    const link = document.createElement("a");
-    link.href = result.url;
-    link.target = "_blank";
-    link.textContent = result.title;
+    const label = document.createElement("h2");
+    label.className = "category";
+    label.textContent = category;
 
-    const host = document.createElement("p");
-    host.className = "host";
-    host.textContent = result.url;
+    const count = document.createElement("span");
+    count.textContent = group.length + (group.length === 1 ? " source" : " sources");
+    label.appendChild(count);
 
-    const snippet = document.createElement("p");
-    snippet.textContent = result.snippet;
+    resultsBox.appendChild(label);
 
-    card.appendChild(link);
-    card.appendChild(host);
-    card.appendChild(snippet);
-    resultsBox.appendChild(card);
+    for (const result of group) {
+      resultsBox.appendChild(buildCard(result));
+    }
   }
+}
+
+function buildCard(result) {
+  const card = document.createElement("div");
+  card.className = "result";
+
+  const link = document.createElement("a");
+  link.href = result.url;
+  link.target = "_blank";
+  link.textContent = result.title;
+
+  const host = document.createElement("p");
+  host.className = "host";
+  host.textContent = result.url;
+
+  const snippet = document.createElement("p");
+  snippet.textContent = result.snippet;
+
+  card.appendChild(link);
+  card.appendChild(host);
+  card.appendChild(snippet);
+  return card;
 }

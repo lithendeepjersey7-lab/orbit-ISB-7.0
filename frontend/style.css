@@ -118,3 +118,27 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .result .host { margin: 2px 0 8px; font-size: 12.5px; color: var(--muted); }
 
 .result p { margin: 0; font-size: 14.5px; }
+
+.category {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 28px 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.category span {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--accent);
+  white-space: nowrap;
+}
