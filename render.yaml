@@ -1,0 +1,33 @@
+# Render deployment settings for the backend.
+#
+# These are the same values set in the Render dashboard. Keeping them here
+# means the deployment configuration is in version control and reviewable,
+# instead of existing only in a web form.
+
+services:
+  - type: web
+    name: orbit-isb-7-0-staging
+    runtime: python
+    plan: free
+
+    # The backend lives in a subfolder, so Render runs every command below
+    # from inside backend/ rather than the repository root.
+    rootDir: backend
+
+    buildCommand: pip install -r requirements.txt
+
+    # --host 0.0.0.0 is required: the default 127.0.0.1 only accepts
+    # connections from inside Render's container, so the service would run
+    # but appear dead from outside.
+    #
+    # --port $PORT is required: Render assigns the port at runtime, so
+    # hard-coding one sends traffic where nothing is listening.
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+
+    branch: staging
+
+    envVars:
+      # sync: false means "prompt me for this in the dashboard, don't read it
+      # from this file" - which is how a secret is declared without committing it.
+      - key: TAVILY_API_KEY
+        sync: false
