@@ -17,20 +17,28 @@ Built for **Orbit ISB 7.0** — Milestone 1.
 ## What it does
 
 A founder types their startup idea into a web page. The Web Search Agent
-expands that one idea into three targeted search queries, runs each against the
-Tavily API, then merges, ranks and de-duplicates the results.
+expands that one idea into three targeted search queries, runs all three
+against the Tavily API at the same time, then merges, ranks and de-duplicates
+the results.
 
 They get back a summary of what the web says, the queries the agent generated,
-and a list of real sources they can click through to.
+sources grouped by the search that found them, and a report of the run itself -
+searches made, duplicates collapsed, and how many distinct sites the evidence
+came from.
 
 Searching the founder's raw sentence returns general blog posts. Searching
 these three angles returns evidence:
 
-| Angle | Finds |
-|---|---|
-| `{idea} competitors and similar startups` | Who is already in this space |
-| `{idea} market size and industry growth trends` | Whether the opportunity is real |
-| `existing solutions and customer complaints about {idea}` | Where the gap is |
+| Angle | Shown as | Finds |
+|---|---|---|
+| `{idea} competitors and similar startups` | Competitors | Who is already in this space |
+| `{idea} market size and industry growth trends` | Market size & trends | Whether the opportunity is real |
+| `existing solutions and customer complaints about {idea}` | Customer demand | Where the gap is |
+
+The three searches run concurrently, in a thread pool with one worker each.
+Measured on the same idea: 2.3 seconds one after another, 1.2 seconds all at
+once. It is 2x rather than 3x because the request finishes when the slowest
+search returns, not when the sum of all three does.
 
 ## Tech stack
 
@@ -98,7 +106,8 @@ curl -X POST https://orbit-isb-7-0-staging.onrender.com/validate \
   -d '{"idea":"an app that helps students split rent with roommates"}'
 ```
 
-Returns `idea`, `queries`, `summary` and `results` — full shape in
+Returns `idea`, `queries`, `categories`, `counts`, `summary`, `results`,
+`elapsed_seconds` and a `stats` block describing the run — full shape in
 [ARCHITECTURE.md](./ARCHITECTURE.md#5-the-api-contract).
 
 ## Deployment
@@ -125,5 +134,5 @@ automatically on push.
 ## Milestone status
 
 - [x] **Milestone 1** — system architecture, idea submission interface, Web Search Agent
-- [ ] Milestone 2 — Competitor and Market Sizing agents, running concurrently
+- [ ] Milestone 2 — Competitor and Market Sizing agents, run concurrently alongside this one
 - [ ] Milestone 3 — synthesis agent and an overall validation score
