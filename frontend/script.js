@@ -21,22 +21,27 @@ async function validateIdea() {
   resultsBox.innerHTML = "";
   submitButton.disabled = true;
 
+  // The try only wraps the network call. If it wrapped the rendering too, a
+  // bug in showResults would be reported as "could not reach the API", which
+  // sends you looking in the wrong place.
+  let data;
   try {
     const response = await fetch(API_URL + "/validate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ idea: idea }),
     });
-
-    const data = await response.json();
-    showResults(data);
-    statusLine.textContent =
-      data.results.length + " sources found in " + data.elapsed_seconds + "s";
+    data = await response.json();
   } catch (error) {
     statusLine.textContent = "Could not reach the API. Is the backend running?";
     statusLine.className = "error";
+    submitButton.disabled = false;
+    return;
   }
 
+  showResults(data);
+  statusLine.textContent =
+    data.results.length + " sources found in " + data.elapsed_seconds + "s";
   submitButton.disabled = false;
 }
 
@@ -47,6 +52,8 @@ function showResults(data) {
     summary.textContent = data.summary;
     resultsBox.appendChild(summary);
   }
+
+  resultsBox.appendChild(buildAgentRun(data.stats));
 
   const queries = document.createElement("div");
   queries.className = "queries";
@@ -83,6 +90,51 @@ function showResults(data) {
       resultsBox.appendChild(buildCard(result));
     }
   }
+}
+
+function buildAgentRun(stats) {
+  const panel = document.createElement("div");
+  panel.className = "agentrun";
+
+  const heading = document.createElement("h3");
+  heading.textContent = "Agent run";
+  panel.appendChild(heading);
+
+  const row = document.createElement("div");
+  row.className = "stats";
+
+  const tiles = [
+    [stats.searches_run, "Searches, in parallel"],
+    [stats.raw_results, "Results retrieved"],
+    [stats.duplicates_removed, "Duplicates removed"],
+    [stats.distinct_sites, "Distinct sites"],
+  ];
+
+  for (const [value, label] of tiles) {
+    const tile = document.createElement("div");
+    tile.className = "stat";
+
+    const v = document.createElement("span");
+    v.className = "stat__value";
+    v.textContent = value;
+
+    const l = document.createElement("span");
+    l.className = "stat__label";
+    l.textContent = label;
+
+    tile.appendChild(v);
+    tile.appendChild(l);
+    row.appendChild(tile);
+  }
+
+  panel.appendChild(row);
+
+  const foot = document.createElement("p");
+  foot.className = "agentrun__foot";
+  foot.textContent = stats.shown + " sources shown in " + stats.elapsed_seconds + "s";
+  panel.appendChild(foot);
+
+  return panel;
 }
 
 function buildCard(result) {

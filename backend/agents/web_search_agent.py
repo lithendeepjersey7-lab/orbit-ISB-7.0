@@ -1,6 +1,7 @@
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from tavily import TavilyClient
@@ -30,6 +31,14 @@ def run_one_search(angle):
     return category, query, response
 
 
+def site_of(url):
+    """Domain name of a URL, without the leading www."""
+    try:
+        return urlparse(url).netloc.replace("www.", "")
+    except Exception:
+        return ""
+
+
 def search_idea(idea):
     """Search the web for evidence about a startup idea."""
     started = time.perf_counter()
@@ -42,10 +51,12 @@ def search_idea(idea):
 
     results = []
     summary = None
+    searches_succeeded = 0
 
     for category, query, response in searches:
         if response is None:
             continue
+        searches_succeeded += 1
 
         if summary is None and response.get("answer"):
             summary = response["answer"]
@@ -58,6 +69,8 @@ def search_idea(idea):
                 "score": item.get("score") or 0,
                 "category": category,
             })
+
+    raw_count = len(results)
 
     # Best result first
     results.sort(key=lambda r: r["score"], reverse=True)
@@ -74,6 +87,8 @@ def search_idea(idea):
     for result in results:
         counts[result["category"]] += 1
 
+    elapsed = round(time.perf_counter() - started, 1)
+
     return {
         "idea": idea,
         "queries": [query for _, query in angles],
@@ -81,13 +96,21 @@ def search_idea(idea):
         "counts": counts,
         "summary": summary,
         "results": results,
-        "elapsed_seconds": round(time.perf_counter() - started, 1),
+        "elapsed_seconds": elapsed,
+        # A report of what the agent actually did on this run
+        "stats": {
+            "searches_run": len(angles),
+            "searches_succeeded": searches_succeeded,
+            "raw_results": raw_count,
+            "duplicates_removed": raw_count - len(results),
+            "shown": len(results),
+            "distinct_sites": len({site_of(r["url"]) for r in results if r["url"]}),
+            "elapsed_seconds": elapsed,
+        },
     }
 
 
 if __name__ == "__main__":
     output = search_idea("an app that helps students split rent with roommates")
-    print("Took:", output["elapsed_seconds"], "seconds")
+    print("Stats:", output["stats"])
     print("Counts:", output["counts"])
-    for r in output["results"][:5]:
-        print(f"  [{r['category']}] {round(r['score'], 2)} {r['title']}")
