@@ -1,0 +1,63 @@
+{
+  "idea": "a platform matching freelance nurses to hospital shifts",
+  "analysis": {
+    "landscape_summary": "The shift-matching market for nurses is dominated by digital gig platforms and direct-booking marketplaces that connect healthcare facilities with local W-2 or freelance nurses. While these platforms address staffing shortages and reduce hospital reliance on expensive travel contracts, nurses frequently face uncompensated last-minute shift cancellations and poor communication when facilities fill shifts internally without updating the app.",
+    "competitors": [
+      {
+        "name": "ShiftMed",
+        "type": "direct",
+        "why_this_type": "Directly matches healthcare facilities with local W-2 nurses for flexible per-diem shifts and float pool management.",
+        "offering": "Workforce management platform offering local W-2 nurses, direct hiring float pools, Instant Pay, and Guaranteed Shifts\u00ae with zero conversion fees.",
+        "positioning": "Branded healthcare workforce solution designed to eliminate travel contracts and cut facility costs.",
+        "target_customer": "Healthcare facilities and local W-2 nurses seeking per-diem or float pool shifts.",
+        "weak_spots": "The search results do not cover this field. Estimate (not from sources): Operating a W-2 model increases administrative and payroll compliance complexity compared to 1099 gig platforms."
+      },
+      {
+        "name": "CareRev",
+        "type": "direct",
+        "why_this_type": "Connects freelance nurses directly with open per-diem hospital shifts through a gig mobile app.",
+        "offering": "AI-powered mobile app active across 650 facilities for picking up flexible per-diem nursing shifts.",
+        "positioning": "On-demand gig nursing platform providing extreme schedule flexibility for healthcare workers.",
+        "target_customer": "Freelance/gig nurses and healthcare facilities requiring short-term shift coverage.",
+        "weak_spots": "Nurses experience last-minute cancellations or lack confirmation after accepting shifts, causing lost work days after arranging childcare and travel."
+      },
+      {
+        "name": "Clipboard Health",
+        "type": "direct",
+        "why_this_type": "Operates a two-sided marketplace matching facilities and healthcare professionals for open shifts.",
+        "offering": "Two-sided digital shift-matching app for per-diem healthcare staffing.",
+        "positioning": "Flexible shift marketplace for healthcare facilities and independent healthcare professionals.",
+        "target_customer": "Hospitals/facilities and freelance nurses/CNAs.",
+        "weak_spots": "Facilities cancel last-minute or fill shifts internally without updating the platform, leaving nurses uncompensated for lost shifts."
+      },
+      {
+        "name": "ShiftKey",
+        "type": "direct",
+        "why_this_type": "Directly connects credentialed nurses with facility open shifts and per-diem placements.",
+        "offering": "Online platform featuring credential/specialty matching, online application processing, and text/email shift alerts.",
+        "positioning": "Specialty and credential-aligned flexible shift platform for healthcare placements.",
+        "target_customer": "Licensed nurses, CNAs, and healthcare facilities.",
+        "weak_spots": "The search results do not cover this field. Estimate (not from sources): Reliance on text/email alerts rather than instant auto-matching can cause delays in securing preferred shifts."
+      },
+      {
+        "name": "Matchwell",
+        "type": "direct",
+        "why_this_type": "Directly enables facilities to book per-diem and contract nurses without traditional staffing agencies.",
+        "offering": "Direct-booking digital marketplace for local per-diem and contract nursing positions.",
+        "positioning": "Venture-backed direct-hire alternative to traditional agency staffing.",
+        "target_customer": "Healthcare facilities and local per-diem or contract nurses.",
+        "weak_spots": "The search results do not cover this field. Estimate (not from sources): Smaller market footprint makes it harder to compete with national platforms for facility volume."
+      },
+      {
+        "name": "Maxim Healthcare Services",
+        "type": "indirect",
+        "why_this_type": "Solves staffing needs through traditional agency service models rather than an automated direct shift-matching app.",
+        "offering": "Agency provider of home healthcare, private duty nursing, and behavioral health staffing.",
+        "positioning": "Full-service traditional healthcare and home nursing agency.",
+        "target_customer": "Patients needing private home care and facilities seeking agency nursing staff.",
+        "weak_spots": "The search results do not cover this field. Estimate (not from sources): Lacks a self-serve, instant mobile marketplace for nurses to pick up open hospital shifts on demand."
+      }
+    ],
+    "market_gaps": "1. Last-Minute Shift Cancellation Protection: Most gig platforms allow facilities to cancel shifts or fill them internally without notifying the nurse, leaving workers with lost wages and wasted logistics (such as childcare arrangements). Guaranteed shift income models remain rare.\n2. Real-Time Hospital System Synchronization: Internal hospital scheduling systems do not sync reliably with external shift apps, causing duplicate shift bookings and un-updated shift listings.\n3. User Experience & Mobile Reliability: Traditional scheduling software suffers from heavy implementation burdens (up to 12 weeks), unstable mobile apps, and poor usability for working nurses."
+  }
+}
