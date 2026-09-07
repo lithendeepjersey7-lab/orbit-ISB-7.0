@@ -23,10 +23,27 @@ async function validateIdea() {
     return;
   }
 
-  statusLine.textContent = "Searching the web...";
   statusLine.className = "";
   resultsBox.innerHTML = "";
   submitButton.disabled = true;
+
+  // A full run takes about a minute on Render's free tier, which gives the
+  // backend a tenth of a CPU. Without these updates the page looks frozen,
+  // so say which agent is working rather than showing one static message.
+  const stages = [
+    [0, "Searching the web..."],
+    [4, "Reading the results. The market and competitor agents are running..."],
+    [25, "Still working. The free hosting tier is slow, but it is not stuck..."],
+    [75, "Taking longer than usual. The backend may be waking from sleep..."],
+  ];
+  const startedAt = Date.now();
+  statusLine.textContent = stages[0][1];
+  const ticker = setInterval(function () {
+    const seconds = (Date.now() - startedAt) / 1000;
+    for (const [after, message] of stages) {
+      if (seconds >= after) statusLine.textContent = message;
+    }
+  }, 1000);
 
   // The try only wraps the network call. If it wrapped the rendering too, a
   // bug in showResults would be reported as "could not reach the API", which
@@ -40,12 +57,14 @@ async function validateIdea() {
     });
     data = await response.json();
   } catch (error) {
+    clearInterval(ticker);
     statusLine.textContent = "Could not reach the API. Is the backend running?";
     statusLine.className = "error";
     submitButton.disabled = false;
     return;
   }
 
+  clearInterval(ticker);
   showResults(data);
   statusLine.textContent =
     data.results.length + " sources found in " + data.elapsed_seconds + "s";
