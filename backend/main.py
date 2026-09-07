@@ -2,9 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from agents.web_search_agent import search_idea
+# The pipeline runs the search agent, then the market and competitor
+# agents at the same time. Aliased because this file already has a
+# route function called validate().
+from agents.pipeline import validate as run_pipeline
 
-app = FastAPI(title="AI Startup Idea Validator")
+app = FastAPI(title="Litmus - AI Startup Idea Validator")
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,9 +23,9 @@ class IdeaRequest(BaseModel):
 
 @app.get("/")
 def home():
-    return {"message": "AI Startup Idea Validator API"}
+    return {"message": "Litmus - AI Startup Idea Validator API", "milestone": 2}
 
 
 @app.post("/validate")
 def validate(request: IdeaRequest):
-    return search_idea(request.idea)
+    return run_pipeline(request.idea)

@@ -1,4 +1,11 @@
-const API_URL = "https://orbit-isb-7-0-staging.onrender.com";
+// Opened from disk or localhost, talk to the local backend. Served from
+// Vercel, talk to Render. This means the file is never edited back and forth
+// before a push, which is the usual way a deploy ends up pointing at
+// localhost.
+const LOCAL = ["localhost", "127.0.0.1", ""].includes(location.hostname);
+const API_URL = LOCAL
+  ? "http://127.0.0.1:8000"
+  : "https://orbit-isb-7-0-staging.onrender.com";
 
 const ideaBox = document.getElementById("idea");
 const submitButton = document.getElementById("submit");
@@ -53,7 +60,16 @@ function showResults(data) {
     resultsBox.appendChild(summary);
   }
 
-  resultsBox.appendChild(buildAgentRun(data.stats));
+  if (data.errors && data.errors.length) {
+    resultsBox.appendChild(buildErrors(data.errors));
+  }
+
+  resultsBox.appendChild(buildAgentRun(data));
+
+  // The analysis comes before the raw sources. A founder wants the conclusion
+  // first and the evidence underneath it, not the other way round.
+  if (data.market) resultsBox.appendChild(buildMarket(data.market));
+  if (data.competitors) resultsBox.appendChild(buildCompetitors(data.competitors));
 
   const queries = document.createElement("div");
   queries.className = "queries";
@@ -92,7 +108,8 @@ function showResults(data) {
   }
 }
 
-function buildAgentRun(stats) {
+function buildAgentRun(data) {
+  const stats = data.stats;
   const panel = document.createElement("div");
   panel.className = "agentrun";
 
@@ -104,8 +121,8 @@ function buildAgentRun(stats) {
   row.className = "stats";
 
   const tiles = [
+    [3, "Agents run"],
     [stats.searches_run, "Searches, in parallel"],
-    [stats.raw_results, "Results retrieved"],
     [stats.duplicates_removed, "Duplicates removed"],
     [stats.distinct_sites, "Distinct sites"],
   ];
@@ -131,7 +148,9 @@ function buildAgentRun(stats) {
 
   const foot = document.createElement("p");
   foot.className = "agentrun__foot";
-  foot.textContent = stats.shown + " sources shown in " + stats.elapsed_seconds + "s";
+  foot.textContent =
+    stats.shown + " sources gathered, then analysed by two agents at the same time, in " +
+    data.elapsed_seconds + "s total";
   panel.appendChild(foot);
 
   return panel;
@@ -157,4 +176,191 @@ function buildCard(result) {
   card.appendChild(host);
   card.appendChild(snippet);
   return card;
+}
+
+// ---------------------------------------------------------------------------
+// Milestone 2 rendering
+// ---------------------------------------------------------------------------
+
+function withEstimateMarks(text) {
+  // Rule 2 of both agent prompts: anything the sources did not support is
+  // prefixed "Estimate (not from sources):". Mark it visually so a founder can
+  // tell evidence from inference at a glance.
+  const marker = "Estimate (not from sources):";
+  const p = document.createElement("p");
+  if (!text) return p;
+
+  const at = text.indexOf(marker);
+  if (at === -1) {
+    p.textContent = text;
+    return p;
+  }
+
+  p.appendChild(document.createTextNode(text.slice(0, at)));
+  const estimate = document.createElement("span");
+  estimate.className = "estimate";
+  estimate.textContent = text.slice(at);
+  p.appendChild(estimate);
+  return p;
+}
+
+function labelled(label, value) {
+  const p = document.createElement("p");
+  const b = document.createElement("b");
+  b.textContent = label + " ";
+  p.appendChild(b);
+  p.appendChild(document.createTextNode(value));
+  return p;
+}
+
+function buildMarket(market) {
+  const box = document.createElement("section");
+  box.className = "analysis";
+
+  const title = document.createElement("h2");
+  title.textContent = "Market opportunity";
+  box.appendChild(title);
+
+  const fields = [
+    ["Summary", market.market_summary],
+    ["Market size", market.market_size],
+    ["Growth and demand", market.growth_and_demand],
+  ];
+  for (const [label, value] of fields) {
+    if (!value) continue;
+    const h = document.createElement("h3");
+    h.textContent = label;
+    box.appendChild(h);
+    box.appendChild(withEstimateMarks(value));
+  }
+
+  const segments = market.segments || [];
+  if (segments.length) {
+    const h = document.createElement("h3");
+    h.textContent = "Customer segments";
+    box.appendChild(h);
+
+    const grid = document.createElement("div");
+    grid.className = "segments";
+
+    for (const segment of segments) {
+      const card = document.createElement("div");
+      card.className = "segment";
+
+      const name = document.createElement("h4");
+      name.textContent = segment.name;
+      if (segment.side && segment.side !== "n/a") {
+        const tag = document.createElement("span");
+        tag.className = "tag";
+        tag.textContent = segment.side;
+        name.appendChild(tag);
+      }
+      card.appendChild(name);
+
+      const rows = [
+        ["Who they are", segment.who_they_are],
+        ["Pain points", segment.pain_points],
+        ["Buying behaviour", segment.buying_behaviour],
+      ];
+      for (const [label, value] of rows) {
+        if (value) card.appendChild(labelled(label, value));
+      }
+      grid.appendChild(card);
+    }
+    box.appendChild(grid);
+  }
+
+  if (market.evidence_gaps) {
+    const h = document.createElement("h3");
+    h.textContent = "What the sources did not answer";
+    box.appendChild(h);
+    box.appendChild(withEstimateMarks(market.evidence_gaps));
+  }
+
+  return box;
+}
+
+function buildCompetitors(data) {
+  const box = document.createElement("section");
+  box.className = "analysis";
+
+  const title = document.createElement("h2");
+  title.textContent = "Competitor landscape";
+  box.appendChild(title);
+
+  if (data.landscape_summary) {
+    box.appendChild(withEstimateMarks(data.landscape_summary));
+  }
+
+  const competitors = data.competitors || [];
+  if (competitors.length) {
+    const wrap = document.createElement("div");
+    wrap.className = "tablewrap";
+
+    const table = document.createElement("table");
+    const head = document.createElement("tr");
+    const columns = ["Competitor", "Type", "What they offer", "Target customer", "Weak spots"];
+    for (const column of columns) {
+      const th = document.createElement("th");
+      th.textContent = column;
+      head.appendChild(th);
+    }
+    table.appendChild(head);
+
+    for (const competitor of competitors) {
+      const row = document.createElement("tr");
+
+      const name = document.createElement("td");
+      name.className = "cname";
+      name.textContent = competitor.name;
+      row.appendChild(name);
+
+      const type = document.createElement("td");
+      const tag = document.createElement("span");
+      tag.className = "tag tag--" + (competitor.type || "unknown");
+      tag.textContent = competitor.type || "";
+      // The agent explains its own classification; show it on hover.
+      if (competitor.why_this_type) tag.title = competitor.why_this_type;
+      type.appendChild(tag);
+      row.appendChild(type);
+
+      for (const key of ["offering", "target_customer", "weak_spots"]) {
+        const cell = document.createElement("td");
+        cell.textContent = competitor[key] || "";
+        row.appendChild(cell);
+      }
+      table.appendChild(row);
+    }
+    wrap.appendChild(table);
+    box.appendChild(wrap);
+  }
+
+  if (data.market_gaps) {
+    const h = document.createElement("h3");
+    h.textContent = "Gaps nobody is serving";
+    box.appendChild(h);
+    box.appendChild(withEstimateMarks(data.market_gaps));
+  }
+
+  return box;
+}
+
+function buildErrors(errors) {
+  // The pipeline returns whatever worked plus a list of what did not, so the
+  // page shows partial results instead of a blank screen.
+  const box = document.createElement("div");
+  box.className = "agenterrors";
+
+  const h = document.createElement("h3");
+  h.textContent = "Part of this run did not complete";
+  box.appendChild(h);
+
+  const list = document.createElement("ul");
+  for (const error of errors) {
+    const item = document.createElement("li");
+    item.textContent = error;
+    list.appendChild(item);
+  }
+  box.appendChild(list);
+  return box;
 }

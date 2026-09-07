@@ -192,3 +192,147 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 @media (max-width: 560px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
 }
+
+
+/* ---------------------------------------------------------------------------
+   Milestone 2 - market and competitor analysis
+   --------------------------------------------------------------------------- */
+
+.analysis {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 22px 24px;
+  margin: 22px 0;
+}
+
+.analysis > h2 {
+  margin: 0 0 14px;
+  font-size: 20px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--text);
+}
+
+.analysis h3 {
+  margin: 22px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.analysis h3:first-of-type { margin-top: 4px; }
+
+.analysis p { margin: 0 0 10px; }
+
+/* Anything the agent flagged as its own guess rather than evidence. */
+.estimate {
+  display: inline;
+  background: #fdf4e6;
+  box-shadow: 0 0 0 3px #fdf4e6;
+  border-radius: 2px;
+  color: #7a4a10;
+}
+
+.segments { display: grid; gap: 12px; margin-top: 10px; }
+
+.segment {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  padding: 14px 16px;
+  background: var(--bg);
+}
+
+.segment h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.segment p { margin: 0 0 8px; font-size: 14.5px; }
+.segment p:last-child { margin-bottom: 0; }
+.segment b { color: var(--muted); font-weight: 600; }
+
+.tag {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tag--direct { background: #e3f2ec; color: #1f6b50; }
+.tag--indirect { background: #eceaf5; color: #4f4482; }
+
+.tablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 10px 0 4px;
+}
+
+.analysis table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+  /* Fixed layout plus explicit column widths, so long cells wrap instead of
+     being clipped at the right edge. min-width is the point below which the
+     wrapper starts scrolling sideways rather than squeezing further. */
+  table-layout: fixed;
+  min-width: 560px;
+}
+
+.analysis th:nth-child(1), .analysis td:nth-child(1) { width: 15%; }
+.analysis th:nth-child(2), .analysis td:nth-child(2) { width: 12%; }
+.analysis th:nth-child(3), .analysis td:nth-child(3) { width: 25%; }
+.analysis th:nth-child(4), .analysis td:nth-child(4) { width: 22%; }
+.analysis th:nth-child(5), .analysis td:nth-child(5) { width: 26%; }
+
+.analysis th {
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.analysis td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.analysis tr:last-child td { border-bottom: 0; }
+
+.analysis td.cname { font-weight: 600; }
+
+.agenterrors {
+  background: #fdf1f0;
+  border: 1px solid var(--error);
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin: 18px 0;
+}
+
+.agenterrors h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--error);
+}
+
+.agenterrors ul { margin: 0; padding-left: 18px; font-size: 14.5px; }
