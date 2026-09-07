@@ -1,41 +1,40 @@
-# System Architecture - AI Startup Idea Validator
+# System Architecture - Litmus
 
-Milestone 1, Orbit ISB 7.0.
+AI Startup Idea Validator. Orbit ISB 7.0, Milestones 1 and 2.
 
 ## 1. What the product does
 
 A founder types their startup idea into a web page. The system searches the
-live web for information about that idea and shows what it found.
+live web for evidence about that idea, then two analysts read that evidence and
+report back.
 
-They get back three things: a short summary of what the web says, the list of
-search queries the agent actually ran, and a list of real sources they can
-click through to.
+They get four things: the sources themselves, a market opportunity analysis
+with customer segments, a competitor landscape with the gaps nobody is serving,
+and a short account of what the agents actually did on this run.
 
-The point is to turn a vague idea into real evidence - who the competitors are,
-how big the market is, and what people complain about in existing solutions.
+Milestone 1 turned a vague idea into links. Milestone 2 turns those links into
+an analysis.
 
 ## 2. What an "agent" means in this system
 
 An agent here is a component with one job, a fixed input, a fixed output, and a
 specific set of tools it is allowed to use.
 
-The Web Search Agent in this project:
+There are three:
 
-- Job: gather web evidence about a startup idea
-- Input: one idea, as a string
-- Output: a summary, the queries it ran, and a ranked list of sources
-- Tool: the Tavily Search API
+| Agent | Job | Tool |
+|---|---|---|
+| Web Search | gather web evidence about an idea | Tavily Search API |
+| Market Opportunity | market size, growth, customer segments | Gemini API |
+| Competitor Discovery | competitors, comparison, market gaps | Gemini API |
 
-It does not use an LLM. It does not need one. What makes it an agent is the
-fixed contract, not the intelligence behind it.
+The Web Search Agent uses no LLM and does not need one - what makes it an agent
+is the fixed contract, not the intelligence behind it. The two analysts do need
+one, because they produce judgements rather than retrieve documents.
 
 That contract is the important part. Because the input and output shapes are
-fixed, Milestone 2 can add a Competitor Agent and a Market Sizing Agent as new
-files in `agents/` without changing this one at all.
-
-The same reasoning already applies inside this agent. Its three searches do not
-depend on each other, so they are run at the same time rather than one after
-another. Independent agents can be run the same way in Milestone 2.
+fixed, Milestone 2 added two agents as new files in `agents/` without changing
+the Milestone 1 agent by a single line.
 
 ## 3. How the pieces connect
 
@@ -46,24 +45,31 @@ Browser (index.html + script.js)
         v
 FastAPI backend (main.py)
         |
-        |  calls search_idea(idea)
+        |  calls validate(idea)
         v
-Web Search Agent (agents/web_search_agent.py)
-        |
-        |  3 search calls, all at the same time
-        v
-Tavily Search API
-        |
-        |  results come back
-        v
-Agent merges, ranks, de-duplicates and counts
+Pipeline (agents/pipeline.py)  -  a LangGraph state graph
         |
         v
-JSON response -> script.js -> results and run stats on the page
+   Web Search Agent  ------> Tavily API
+        |
+        |  ranked results are written into shared state
+        |
+        +---------------------------+
+        |                           |
+        v                           v
+  Market Agent               Competitor Agent      (these two run
+        |                           |               at the same time)
+        v                           v
+    Gemini API                 Gemini API
+        |                           |
+        +------------+--------------+
+                     |
+                     v
+        JSON response -> script.js -> analysis shown above the sources
 ```
 
-The frontend never talks to Tavily directly. Everything goes through the
-backend.
+The frontend never talks to Tavily or Gemini directly. Both keys live on the
+server.
 
 ## 4. What the Web Search Agent does, step by step
 
@@ -125,7 +131,119 @@ domains is really two sources repeated - which looks like strong evidence in a
 list but is not. Counting domains puts a quality signal next to the quantity
 one.
 
-## 5. The API contract
+
+## 5. The Market Opportunity and Customer Segmentation Agent
+
+- Job: turn search results into a structured market analysis
+- Input: the idea, plus the ranked results from the Web Search Agent
+- Output: market summary, market size, growth and demand, customer segments,
+  and what the sources did not answer - all as JSON
+- Tool: the Gemini API
+
+**Step 1 - Condense.** `condense()` keeps the twelve highest-scoring results and
+reduces each to one line of category, title and snippet. Sending all fifteen
+with their URLs and scores wastes tokens and buries the useful text.
+
+**Step 2 - Prompt.** The prompt shows the model the exact JSON skeleton it must
+fill in, then states the rules. A template is followed far more reliably than a
+prose description of the same shape, and it means adding a field later is a
+one-line change in one place.
+
+Four rules carry most of the quality:
+
+**Ground every claim, and label anything that is not grounded.** Where the
+sources do not cover something, the agent says so in that field and then gives
+its estimate in a sentence beginning exactly `Estimate (not from sources):`.
+The frontend highlights that phrase, so a founder can see which numbers came
+from evidence and which are the model's own inference. Most tools blur that
+line; this one draws it on the page.
+
+**Never describe what the sources are.** An early version produced: "the search
+results reference research reports covering undergraduate and postgraduate
+student segments, tracking growth from 2020 through 2034" - a sentence
+containing no market size at all. The rule now forces either the figure itself
+or an honest statement that it is missing.
+
+**At most three segments, and they must be genuinely different customers.** The
+first version returned "undergraduate students", "postgraduate students" and
+"flexible rent payment seekers" - one person wearing three hats. The rule now
+says return fewer rather than pad, and explain the shortfall in
+`evidence_gaps`. A later run duly returned two and wrote: "Only two distinct
+customer segments are supported by the provided data."
+
+**Every segment is labelled `buyer`, `supply`, `both` or `n/a`,** so a
+two-sided marketplace is visible as one rather than read as a flat list.
+
+**Step 3 - Parse.** `parse_json()` strips a markdown code fence if the model
+wrapped its JSON in one, then parses. It returns `None` rather than raising, so
+one bad reply cannot kill the request.
+
+## 6. The Competitor Discovery and Comparison Agent
+
+- Job: map the competitive landscape and find where the idea could fit
+- Input: the same idea and the same search results
+- Output: a landscape summary, up to six competitors with a comparison, and the
+  overall market gaps - as JSON
+- Tool: the Gemini API
+
+Same three steps and the same two helpers. What differs is the prompt:
+
+**Direct or indirect, with the reasoning attached.** Each competitor carries a
+`type` and a one-line `why_this_type`. A direct competitor solves the same
+problem for the same customer; an indirect one solves it differently or for an
+adjacent customer. On the freelance-nursing test, five gig platforms came back
+`direct` and Maxim Healthcare Services - a traditional staffing agency - came
+back `indirect`, which is exactly the distinction the label is for. The
+frontend shows the reasoning on hover.
+
+**Up to six, never padded.** "Returning three real ones is better than six with
+three guesses."
+
+**Listicles are sources, not competitors.** Search results for consumer ideas
+are full of articles like "10 Best Rent Splitting Apps". The rule says extract
+the products named inside them and never list a blog or publisher as a rival.
+Across the test runs, no article has been listed as a competitor.
+
+**Short fields.** `offering`, `positioning` and `target_customer` are one or two
+lines each, because the brief asks for output that is easy to scan and compare,
+and the frontend renders them as a comparison table. This is a deliberate
+difference from the market agent, whose fields are full paragraphs.
+
+**Gaps at both levels.** Each competitor has its own `weak_spots`; the overall
+`market_gaps` is what the founder actually acts on.
+
+## 7. Orchestration
+
+`agents/pipeline.py` is a LangGraph `StateGraph`. A node is an ordinary Python
+function that reads shared state and returns only the keys it changed.
+
+```
+START -> search -+-> market      -+-> END
+                 +-> competitors -+
+```
+
+**The two analysts run at the same time.** Neither needs the other's output -
+both read the search results - so running them one after the other only made
+the founder wait longer for the same answer. In LangGraph, "run in parallel" is
+simply two edges out of one node.
+
+**The `errors` key needs a reducer.** It is declared as
+`Annotated[list, operator.add]`. Both analysts can append to it, and when two
+parallel branches write the same key LangGraph raises `InvalidUpdateError` -
+it has no way to know which should win. `operator.add` tells it not to pick a
+winner but to concatenate. Every other field is written by exactly one node, so
+only `errors` needs this.
+
+**Failure is partial, not total.** Each node catches its own failure, returns
+`None` for its slice of the result, and appends a line to `errors`. If the
+market agent fails and the competitor agent succeeds, the founder gets the
+competitor analysis plus a note saying which part is missing - not a blank
+page. The frontend renders that list in a red panel above the results.
+
+**The graph is compiled once at import,** not per request. Compiling inside the
+route handler would rebuild it on every call.
+
+## 8. The API contract
 
 **POST /validate**
 
@@ -135,49 +253,54 @@ Request:
 { "idea": "an app that helps students split rent with roommates" }
 ```
 
-Response:
+Response - every Milestone 1 field is still present under the same name, so the
+existing frontend kept working when the route was switched over:
 
 ```json
 {
-  "idea": "an app that helps students split rent with roommates",
-  "queries": [
-    "... competitors and similar startups",
-    "... market size and industry growth trends",
-    "existing solutions and customer complaints about ..."
-  ],
+  "idea": "...",
+  "queries": ["...", "...", "..."],
   "categories": ["Competitors", "Market size & trends", "Customer demand"],
-  "counts": {
-    "Competitors": 4,
-    "Market size & trends": 4,
-    "Customer demand": 3
-  },
-  "summary": "Splitwise, Tricount and Settle Up are top apps for splitting rent...",
+  "counts": { "Competitors": 5, "Market size & trends": 5, "Customer demand": 5 },
+  "summary": "...",
   "results": [
-    {
-      "title": "Best Roommate Expense Tracker Apps",
-      "url": "https://www.tryzedger.com/blog/best-roommate-expense-tracker-apps",
-      "snippet": "Compare Zedger, Splitwise, Venmo and more for splitting rent...",
-      "score": 0.73,
-      "category": "Competitors"
-    }
+    { "title": "...", "url": "...", "snippet": "...", "score": 0.73,
+      "category": "Competitors" }
   ],
-  "elapsed_seconds": 1.2,
   "stats": {
-    "searches_run": 3,
-    "searches_succeeded": 3,
-    "raw_results": 15,
-    "duplicates_removed": 4,
-    "shown": 11,
-    "distinct_sites": 9,
-    "elapsed_seconds": 1.2
-  }
+    "searches_run": 3, "searches_succeeded": 3, "raw_results": 15,
+    "duplicates_removed": 0, "shown": 15, "distinct_sites": 15,
+    "elapsed_seconds": 1.6
+  },
+  "market": {
+    "market_summary": "...", "market_size": "...", "growth_and_demand": "...",
+    "segments": [
+      { "name": "...", "side": "buyer", "who_they_are": "...",
+        "pain_points": "...", "buying_behaviour": "..." }
+    ],
+    "evidence_gaps": "..."
+  },
+  "competitors": {
+    "landscape_summary": "...",
+    "competitors": [
+      { "name": "...", "type": "direct", "why_this_type": "...",
+        "offering": "...", "positioning": "...", "target_customer": "...",
+        "weak_spots": "..." }
+    ],
+    "market_gaps": "..."
+  },
+  "errors": [],
+  "elapsed_seconds": 6.0
 }
 ```
 
-There is also **GET /** which returns a short service message, used to check
-the API is running.
+`market` and `competitors` are `null` if that agent failed; `errors` then says
+which one and why.
 
-## 6. Decisions and why
+There is also **GET /** which returns a short service message, used to check the
+API is running.
+
+## 9. Decisions and why
 
 **Query expansion instead of searching the raw sentence.** Explained in
 section 4. It is the main reason the results are useful instead of generic.
@@ -206,12 +329,40 @@ presentation, but it does mean anyone could call the API and spend the Tavily
 credits. Before this goes public it should be changed to only the deployed
 frontend URL.
 
-## 7. What comes next
+**LangGraph rather than CrewAI.** Both were installed and measured on Python
+3.13 before choosing. LangGraph's stack is 87 MB on disk and about 99 MB of
+memory at runtime; CrewAI's is 833 MB and about 224 MB, and 424 MB if
+`memory=True` is left on. Render's free tier kills the service above 512 MB, so
+the margin mattered. LangGraph also does not raise from an `async def` route,
+and a LangGraph node is an ordinary function that can be called and printed
+inside, whereas a CrewAI agent's behaviour is tuned by rewording its backstory.
 
-- More agents in `agents/` - a Competitor Agent and a Market Sizing Agent - run
-  concurrently with each other, the same way the three searches already are.
+**Gemini's free tier, and `gemini-3.7-flash` specifically.** No credit card is
+required. `gemini-2.5-flash` is closed to new accounts, so the model list was
+queried from the API rather than copied from a tutorial.
+
+**A thinking budget of 512 tokens.** Uncapped, the same competitor prompt took
+140.8 seconds on one run and 59.0 on another - the model decides how long to
+think and it varies enormously. Capping it at 128 tokens took the whole pipeline
+from 126 seconds to 27, but the output degraded: the model stopped filling in
+the `side` field on segments. 512 tokens on `gemini-3.7-flash` gave 6 seconds
+end to end with the reasoning intact. The speed-up was worth having; the
+quality check on it was worth more.
+
+**The analysts run concurrently, the pipeline degrades partially.** Both
+covered in section 7.
+
+**`condense()` and `parse_json()` are duplicated in both agent files** rather
+than shared. That is normally the wrong call. A shared module needs a different
+import path depending on whether the file is run directly or imported by
+`main.py`, and with four days to a deadline that import problem was the larger
+risk. Worth refactoring in Milestone 3.
+
+## 10. What comes next
+
+- A synthesis agent that reads all three outputs and scores the idea overall.
 - Caching repeated searches, so the same idea submitted twice does not spend
-  Tavily credits twice.
-- An LLM writing the search queries instead of the fixed templates in
-  `build_queries()`. Only that one function would need to change.
-- A synthesis agent that takes the other agents' output and scores the idea.
+  Tavily and Gemini credits twice.
+- Tightening CORS from `allow_origins=["*"]` to just the deployed frontend.
+- Moving the shared helpers into one module, with the import paths sorted out
+  properly.
