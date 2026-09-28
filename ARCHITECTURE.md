@@ -1,71 +1,68 @@
 # System Architecture - Litmus
 
-AI Startup Idea Validator. Orbit ISB 7.0, Milestones 1 and 2.
+AI Startup Idea Validator. Orbit ISB 7.0, Milestones 1 through 4.
 
 ## 1. What the product does
 
-A founder types their startup idea into a web page. The system searches the
-live web for evidence about that idea, then two analysts read that evidence and
-report back.
+A founder submits a startup idea through the frontend. The backend searches
+the live web, analyzes market opportunity and competitors, then produces SWOT,
+MVP, and go-to-market recommendations. The validation response includes the
+available analyses and search run statistics. The user can download the
+validation result as a self-contained HTML report.
 
-They get four things: the sources themselves, a market opportunity analysis
-with customer segments, a competitor landscape with the gaps nobody is serving,
-and a short account of what the agents actually did on this run.
-
-Milestone 1 turned a vague idea into links. Milestone 2 turns those links into
-an analysis.
+The backend also exposes a context-grounded follow-up Advisor endpoint. It is
+not currently connected to a question form in the frontend.
 
 ## 2. What an "agent" means in this system
 
 An agent here is a component with one job, a fixed input, a fixed output, and a
 specific set of tools it is allowed to use.
 
-There are three:
+There are six Gemini-backed analysis/advisor agents plus the web search agent:
 
 | Agent | Job | Tool |
 |---|---|---|
 | Web Search | gather web evidence about an idea | Tavily Search API |
 | Market Opportunity | market size, growth, customer segments | Gemini API |
 | Competitor Discovery | competitors, comparison, market gaps | Gemini API |
+| SWOT | strengths, weaknesses, opportunities, threats and execution risks | Gemini API |
+| MVP Recommendation | target audience and must-have/nice-to-have features | Gemini API |
+| Go-to-Market | positioning, early customers, channels, first 90 days | Gemini API |
+| Startup Advisor | answer one follow-up using supplied analysis context | Gemini API |
 
-The Web Search Agent uses no LLM and does not need one - what makes it an agent
-is the fixed contract, not the intelligence behind it. The two analysts do need
-one, because they produce judgements rather than retrieve documents.
+The Web Search Agent uses no LLM; its fixed input/output contract is its role.
+The Advisor is an API capability outside the validation graph: each request
+must include the startup idea and current analysis context.
 
-That contract is the important part. Because the input and output shapes are
-fixed, Milestone 2 added two agents as new files in `agents/` without changing
-the Milestone 1 agent by a single line.
+Fixed inputs and outputs keep responsibilities separate. The validation
+agents live in `backend/agents/`; report generation is a separate module.
 
 ## 3. How the pieces connect
 
 ```
 Browser (index.html + script.js)
-        |
-        |  POST /validate   {"idea": "..."}
-        v
-FastAPI backend (main.py)
-        |
-        |  calls validate(idea)
-        v
-Pipeline (agents/pipeline.py)  -  a LangGraph state graph
-        |
-        v
-   Web Search Agent  ------> Tavily API
-        |
-        |  ranked results are written into shared state
-        |
-        +---------------------------+
-        |                           |
-        v                           v
-  Market Agent               Competitor Agent      (these two run
-        |                           |               at the same time)
-        v                           v
-    Gemini API                 Gemini API
-        |                           |
-        +------------+--------------+
-                     |
-                     v
-        JSON response -> script.js -> analysis shown above the sources
+  | POST /validate {"idea": "..."}
+  v
+FastAPI (main.py) -> LangGraph (agents/pipeline.py)
+  |
+  v
+   Web Search -> Tavily
+  |
+  +----> Market Agent ------+
+  +----> Competitor Agent --+  (parallel)
+          v
+          SWOT -> MVP -> GTM
+          |
+          JSON validation response
+       |             |
+       v             v
+     frontend results   POST /report
+              |
+              v
+             downloadable HTML
+
+Follow-up questions use POST /advisor with the question and analysis context;
+this route does not run as part of the validation graph.
 ```
 
 The frontend never talks to Tavily or Gemini directly. Both keys live on the
@@ -174,9 +171,11 @@ customer segments are supported by the provided data."
 **Every segment is labelled `buyer`, `supply`, `both` or `n/a`,** so a
 two-sided marketplace is visible as one rather than read as a flat list.
 
-**Step 3 - Parse.** `parse_json()` strips a markdown code fence if the model
-wrapped its JSON in one, then parses. It returns `None` rather than raising, so
-one bad reply cannot kill the request.
+**Step 3 - Parse and validate.** `parse_json()` accepts plain or fenced JSON,
+then uses `agents/response_validation.py` to check the required fields and
+nested types. The Market agent also enforces the three-segment maximum and
+allowed `side` values. Invalid responses return `None` rather than being passed
+downstream as analysis.
 
 ## 6. The Competitor Discovery and Comparison Agent
 
@@ -186,7 +185,8 @@ one bad reply cannot kill the request.
   overall market gaps - as JSON
 - Tool: the Gemini API
 
-Same three steps and the same two helpers. What differs is the prompt:
+The competitor agent uses the same search-result condensation and shared JSON
+schema validator. What differs is its prompt and domain constraints:
 
 **Direct or indirect, with the reasoning attached.** Each competitor carries a
 `type` and a one-line `why_this_type`. A direct competitor solves the same
@@ -218,8 +218,8 @@ difference from the market agent, whose fields are full paragraphs.
 function that reads shared state and returns only the keys it changed.
 
 ```
-START -> search -+-> market      -+-> END
-                 +-> competitors -+
+START -> search -+-> market      -+
+                 +-> competitors -+-> swot -> mvp -> gtm -> END
 ```
 
 **The two analysts run at the same time.** Neither needs the other's output -
@@ -234,16 +234,66 @@ it has no way to know which should win. `operator.add` tells it not to pick a
 winner but to concatenate. Every other field is written by exactly one node, so
 only `errors` needs this.
 
-**Failure is partial, not total.** Each node catches its own failure, returns
-`None` for its slice of the result, and appends a line to `errors`. If the
-market agent fails and the competitor agent succeeds, the founder gets the
-competitor analysis plus a note saying which part is missing - not a blank
-page. The frontend renders that list in a red panel above the results.
+**Failure is partial where a stage can be skipped.** Search exceptions and
+unusable Market, Competitor, SWOT, MVP, or GTM responses are recorded in
+`errors`. SWOT requires Market and Competitor; MVP requires Market and
+Competitor; GTM requires Market, Competitor, and SWOT. A missing prerequisite
+leaves that result `null` and the later stage reports why it was skipped. The
+frontend displays the error list above its rendered results.
 
 **The graph is compiled once at import,** not per request. Compiling inside the
 route handler would rebuild it on every call.
 
-## 8. The API contract
+## 8. Milestone 3 analysis stages
+
+After the parallel Market and Competitor analyses finish, the pipeline runs
+three synthesis stages:
+
+1. **SWOT** (`swot_agent.py`) receives the idea, Market analysis, and
+  Competitor analysis. It returns strengths, weaknesses, opportunities,
+  threats, and execution risks.
+2. **MVP** (`mvp_agent.py`) receives the idea, Market analysis, and Competitor
+  analysis. It returns a target audience, product summary, must-have features,
+  and optional nice-to-have features.
+3. **GTM** (`gtm_agent.py`) receives the idea, Market analysis, Competitor
+  analysis, and SWOT. It returns positioning, early target customers,
+  acquisition channels, and actions grouped into the first three 30-day
+  periods.
+
+The pipeline keeps each result under its own response field. There is no
+overall numeric validation score in the current implementation.
+
+The **Startup Advisor** is a separate endpoint, not a LangGraph node. It accepts
+a question plus the idea and all five analysis objects (Market, Competitor,
+SWOT, MVP, and GTM). Its structured response includes an answer, a
+`has_sufficient_context` boolean, and `missing_context` details. The current
+frontend has no Advisor form, and the route is stateless: the caller must send
+the context with each question.
+
+## 9. Report generation, testing, and reliability
+
+`POST /report` passes the complete `/validate` result to
+`report_generator.py`. The module uses those supplied values, escapes text for
+HTML, and creates six sections: startup idea/executive summary, Market,
+Competitor, SWOT and risks, MVP, and GTM. Missing or null sections show a
+not-available message. The response is an HTML attachment. The frontend's
+Download validation report button sends the current validation result and
+saves the returned HTML.
+
+`backend/e2e_test_runner.py` runs the complete pipeline and report endpoint for
+five domains: SaaS, Consumer, Hardware, Marketplace, and EdTech. It replaces
+Tavily and Gemini calls with labelled offline fixtures. This checks graph
+dependencies, result shapes, report sections, and download response headers;
+it does **not** evaluate live AI output quality or factual accuracy.
+
+Each Gemini-backed agent uses `agents/response_validation.py` to parse plain
+or fenced JSON and verify required fields and nested types. Agent-specific
+checks also enforce constraints such as competitor classifications and
+required MVP/GTM content. Invalid responses become unusable results and are
+reported through the pipeline's partial-failure path; there is no automatic
+retry or repair step.
+
+## 10. The API contract
 
 **POST /validate**
 
@@ -253,8 +303,8 @@ Request:
 { "idea": "an app that helps students split rent with roommates" }
 ```
 
-Response - every Milestone 1 field is still present under the same name, so the
-existing frontend kept working when the route was switched over:
+Response - the original search fields remain, with each analysis returned
+separately:
 
 ```json
 {
@@ -289,18 +339,53 @@ existing frontend kept working when the route was switched over:
     ],
     "market_gaps": "..."
   },
+  "swot": { "strengths": [], "weaknesses": [], "opportunities": [],
+            "threats": [], "execution_risks": [] },
+  "mvp": { "target_audience": "...", "product_summary": "...",
+           "must_have_features": [], "nice_to_have_features": [] },
+  "gtm": { "positioning": {}, "early_target_customers": [],
+           "customer_acquisition_channels": [], "first_90_days": {} },
   "errors": [],
   "elapsed_seconds": 6.0
 }
 ```
 
-`market` and `competitors` are `null` if that agent failed; `errors` then says
-which one and why.
+The `market`, `competitors`, `swot`, `mvp`, or `gtm` field may be `null` if the
+stage cannot produce a valid result or its prerequisites are unavailable;
+`errors` describes failures and skipped stages. `elapsed_seconds` is the
+validation pipeline duration, not a live AI-quality signal.
 
-There is also **GET /** which returns a short service message, used to check the
-API is running.
+**POST /advisor**
 
-## 9. Decisions and why
+Request fields:
+
+```json
+{
+  "question": "Which segment should we test first?",
+  "idea": "...",
+  "market": {},
+  "competitors": {},
+  "swot": {},
+  "mvp": {},
+  "gtm": {}
+}
+```
+
+Returns `{"answer":"...","has_sufficient_context":true,"missing_context":[]}`.
+When evidence is insufficient, the answer should say so, the boolean is false,
+and `missing_context` lists the absent information. The endpoint does not store
+prior turns or fetch context itself.
+
+**POST /report**
+
+Request body: the complete JSON object returned by `/validate`. Response:
+`text/html` with a `Content-Disposition: attachment` filename. The frontend
+initiates this request when the user selects Download validation report.
+
+**GET /** returns the API service message (the milestone number in this
+response is a legacy value and is not a reliable release-status indicator).
+
+## 11. Decisions and why
 
 **Query expansion instead of searching the raw sentence.** Explained in
 section 4. It is the main reason the results are useful instead of generic.
@@ -310,10 +395,8 @@ browser, so anything written in it can be read by anyone who opens DevTools.
 The key is kept in `backend/.env`, which is listed in `.gitignore` so it never
 reaches GitHub either.
 
-**The agent lives in its own file.** Routes in `main.py` stay thin - the
-`/validate` route just calls the agent and returns the result. Keeping the
-logic separate is what lets Milestone 2 add more agents as new files without
-touching `main.py`.
+**Analysis and report logic are separate from routes.** `main.py` delegates to
+the validation pipeline, Advisor agent, and HTML report builder.
 
 **The three searches run concurrently.** They do not depend on each other, so
 running them one after another only made the founder wait longer for the same
@@ -352,17 +435,15 @@ quality check on it was worth more.
 **The analysts run concurrently, the pipeline degrades partially.** Both
 covered in section 7.
 
-**`condense()` and `parse_json()` are duplicated in both agent files** rather
-than shared. That is normally the wrong call. A shared module needs a different
-import path depending on whether the file is run directly or imported by
-`main.py`, and with four days to a deadline that import problem was the larger
-risk. Worth refactoring in Milestone 3.
+**Response validation is shared.** Gemini-backed agents use
+`agents/response_validation.py` for JSON parsing and required-shape/type checks;
+agent-specific constraints remain in their owning modules.
 
-## 10. What comes next
+## 12. Current boundaries and operational notes
 
-- A synthesis agent that reads all three outputs and scores the idea overall.
-- Caching repeated searches, so the same idea submitted twice does not spend
-  Tavily and Gemini credits twice.
-- Tightening CORS from `allow_origins=["*"]` to just the deployed frontend.
-- Moving the shared helpers into one module, with the import paths sorted out
-  properly.
+- There is no overall numeric startup-validation score in the response.
+- The Advisor is available over the API but has no frontend interaction.
+- The five-domain runner uses offline fixtures and is not a live AI-quality test.
+- CORS currently allows all origins; restrict it before exposing the API
+  broadly.
+- Repeated requests are not cached and can use Tavily/Gemini quota again.
