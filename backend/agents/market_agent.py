@@ -91,7 +91,9 @@ RULES = """RULES:
 5. Set "side" on each segment to "buyer" if they pay, "supply" if they provide
    the service on a two-sided marketplace, "both" if they do each, or "n/a"
    when the idea is not a marketplace.
-6. Write each field as a detailed paragraph of three to four sentences.
+6. Keep the analysis concise and specific. Use one to three sentences per field,
+   with concrete evidence or findings where available. Avoid repetition and
+   filler.
 7. Use the industry's own terminology where the sources use it.
 8. Put anything a founder still needs to research, because these sources did
    not answer it, in "evidence_gaps"."""
