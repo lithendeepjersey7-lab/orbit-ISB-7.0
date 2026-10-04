@@ -3,6 +3,11 @@ import json
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+try:
+    from response_validation import parse_json_response
+except ImportError:
+    from agents.response_validation import parse_json_response
+
 load_dotenv()
 
 MODEL = "gemini-3.7-flash"
@@ -27,15 +32,7 @@ def condense(results, limit=12):
 
 def parse_json(text):
     """Parse the model's reply as JSON, tolerating a markdown code fence."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return None
+    return parse_json_response(text, RESPONSE_SCHEMA)
 
 
 SHAPE = """{
@@ -53,6 +50,20 @@ SHAPE = """{
   ],
   "market_gaps": ""
 }"""
+
+RESPONSE_SCHEMA = {
+    "landscape_summary": str,
+    "competitors": [{
+        "name": str,
+        "type": str,
+        "why_this_type": str,
+        "offering": str,
+        "positioning": str,
+        "target_customer": str,
+        "weak_spots": str,
+    }],
+    "market_gaps": str,
+}
 
 RULES = """RULES:
 1. Ground every claim in the search results above. Say what the sources
@@ -106,10 +117,16 @@ def analyse_competitors(idea, results):
     prompt = build_prompt(idea, evidence)
     try:
         reply = llm.invoke(prompt)
+        response_text = getattr(reply, "text", None)
     except Exception as error:
         print("Competitor agent failed:", error)
         return None
-    return parse_json(reply.text)
+    result = parse_json(response_text)
+    if result is None or len(result["competitors"]) > 6:
+        return None
+    if any(competitor["type"] not in {"direct", "indirect"} for competitor in result["competitors"]):
+        return None
+    return result
 
 
 if __name__ == "__main__":

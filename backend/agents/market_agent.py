@@ -3,6 +3,11 @@ import json
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+try:
+    from response_validation import parse_json_response
+except ImportError:
+    from agents.response_validation import parse_json_response
+
 load_dotenv()
 
 MODEL = "gemini-3.7-flash"
@@ -36,15 +41,7 @@ def parse_json(text):
     Models frequently wrap JSON in ```json ... ```. Strip that before parsing.
     Returns None instead of raising, so one bad reply cannot kill the request.
     """
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return None
+    return parse_json_response(text, RESPONSE_SCHEMA)
 
 
 # The exact JSON shape the model must return. Kept separate from the
@@ -60,6 +57,20 @@ SHAPE = """{
   ],
   "evidence_gaps": ""
 }"""
+
+RESPONSE_SCHEMA = {
+    "market_summary": str,
+    "market_size": str,
+    "growth_and_demand": str,
+    "segments": [{
+        "name": str,
+        "side": str,
+        "who_they_are": str,
+        "pain_points": str,
+        "buying_behaviour": str,
+    }],
+    "evidence_gaps": str,
+}
 
 RULES = """RULES:
 1. Ground every claim in the search results above. Say what the sources
@@ -80,7 +91,9 @@ RULES = """RULES:
 5. Set "side" on each segment to "buyer" if they pay, "supply" if they provide
    the service on a two-sided marketplace, "both" if they do each, or "n/a"
    when the idea is not a marketplace.
-6. Write each field as a detailed paragraph of three to four sentences.
+6. Keep the analysis concise and specific. Use one to three sentences per field,
+   with concrete evidence or findings where available. Avoid repetition and
+   filler.
 7. Use the industry's own terminology where the sources use it.
 8. Put anything a founder still needs to research, because these sources did
    not answer it, in "evidence_gaps"."""
@@ -109,10 +122,16 @@ def analyse_market(idea, results):
     prompt = build_prompt(idea, evidence)
     try:
         reply = llm.invoke(prompt)
+        response_text = getattr(reply, "text", None)
     except Exception as error:
         print("Market agent failed:", error)
         return None
-    return parse_json(reply.text)
+    result = parse_json(response_text)
+    if result is None or len(result["segments"]) > 3:
+        return None
+    if any(segment["side"] not in {"buyer", "supply", "both", "n/a"} for segment in result["segments"]):
+        return None
+    return result
 
 
 if __name__ == "__main__":

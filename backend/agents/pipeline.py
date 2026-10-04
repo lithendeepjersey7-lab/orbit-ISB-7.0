@@ -1,10 +1,11 @@
 """Orchestration for the AI Startup Idea Validator.
 
 One idea in, a full validation out. The web search agent runs first, then the
-market and competitor agents run at the same time on its results.
+market and competitor agents run at the same time on its results, followed by
+SWOT, MVP, and go-to-market strategy in sequence.
 
-    START -> search -+-> market      -+-> END
-                     +-> competitors -+
+    START -> search -+-> market      -+
+                     +-> competitors -+-> swot -> mvp -> gtm -> END
 """
 
 import operator
@@ -19,10 +20,16 @@ try:
     from web_search_agent import search_idea
     from market_agent import analyse_market
     from competitor_agent import analyse_competitors
+    from swot_agent import analyse_swot
+    from mvp_agent import recommend_mvp
+    from gtm_agent import develop_gtm_strategy
 except ImportError:
     from agents.web_search_agent import search_idea
     from agents.market_agent import analyse_market
     from agents.competitor_agent import analyse_competitors
+    from agents.swot_agent import analyse_swot
+    from agents.mvp_agent import recommend_mvp
+    from agents.gtm_agent import develop_gtm_strategy
 
 
 class State(TypedDict):
@@ -39,6 +46,9 @@ class State(TypedDict):
     search: Optional[dict]
     market: Optional[dict]
     competitors: Optional[dict]
+    swot: Optional[dict]
+    mvp: Optional[dict]
+    gtm: Optional[dict]
     errors: Annotated[list, operator.add]
 
 
@@ -68,16 +78,65 @@ def competitor_node(state: State) -> dict:
     return {"competitors": result}
 
 
+def swot_node(state: State) -> dict:
+    """Run SWOT analysis after both Milestone 2 analyses are complete."""
+    if not state.get("market") or not state.get("competitors"):
+        return {"swot": None, "errors": ["SWOT agent skipped: market or competitor analysis unavailable"]}
+    result = analyse_swot(
+        state["idea"],
+        state["market"],
+        state["competitors"],
+    )
+    if result is None:
+        return {"swot": None, "errors": ["SWOT agent returned no usable JSON"]}
+    return {"swot": result}
+
+
+def mvp_node(state: State) -> dict:
+    """Recommend a minimal first version from the existing analyses."""
+    if not state.get("market") or not state.get("competitors"):
+        return {"mvp": None, "errors": ["MVP agent skipped: market or competitor analysis unavailable"]}
+    result = recommend_mvp(
+        state["idea"],
+        state["market"],
+        state["competitors"],
+    )
+    if result is None:
+        return {"mvp": None, "errors": ["MVP agent returned no usable JSON"]}
+    return {"mvp": result}
+
+
+def gtm_node(state: State) -> dict:
+    """Create a GTM strategy after the existing analyses and MVP stage."""
+    if not state.get("market") or not state.get("competitors") or not state.get("swot"):
+        return {"gtm": None, "errors": ["GTM agent skipped: market, competitor, or SWOT analysis unavailable"]}
+    result = develop_gtm_strategy(
+        state["idea"],
+        state["market"],
+        state["competitors"],
+        state["swot"],
+    )
+    if result is None:
+        return {"gtm": None, "errors": ["GTM agent returned no usable JSON"]}
+    return {"gtm": result}
+
+
 _graph = StateGraph(State)
 _graph.add_node("search", search_node)
 _graph.add_node("market", market_node)
 _graph.add_node("competitors", competitor_node)
+_graph.add_node("swot", swot_node)
+_graph.add_node("mvp", mvp_node)
+_graph.add_node("gtm", gtm_node)
 
 _graph.add_edge(START, "search")
 _graph.add_edge("search", "market")        # fan out - these two
 _graph.add_edge("search", "competitors")   # run at the same time
-_graph.add_edge("market", END)
-_graph.add_edge("competitors", END)
+_graph.add_edge("market", "swot")
+_graph.add_edge("competitors", "swot")
+_graph.add_edge("swot", "mvp")
+_graph.add_edge("mvp", "gtm")
+_graph.add_edge("gtm", END)
 
 # Compiled once at import, never per request. Compiling inside the route
 # handler would rebuild the graph on every call.
@@ -97,6 +156,9 @@ def validate(idea: str) -> dict:
         "search": None,
         "market": None,
         "competitors": None,
+        "swot": None,
+        "mvp": None,
+        "gtm": None,
         "errors": [],
     })
 
@@ -113,6 +175,9 @@ def validate(idea: str) -> dict:
         # --- Milestone 2 ---
         "market": final.get("market"),
         "competitors": final.get("competitors"),
+        "swot": final.get("swot"),
+        "mvp": final.get("mvp"),
+        "gtm": final.get("gtm"),
         "errors": final.get("errors", []),
         "elapsed_seconds": round(time.perf_counter() - started, 1),
     }
