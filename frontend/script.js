@@ -3,6 +3,8 @@
 // before a push, which is the usual way a deploy ends up pointing at
 // localhost.
 const LOCAL = ["localhost", "127.0.0.1", ""].includes(location.hostname);
+let latestValidation = null;
+
 const API_URL = LOCAL
   ? "http://127.0.0.1:8000"
   : "https://orbit-isb-7-0-staging.onrender.com";
@@ -82,6 +84,8 @@ function showResults(data) {
   if (data.errors && data.errors.length) {
     resultsBox.appendChild(buildErrors(data.errors));
   }
+
+  latestValidation = data;
 
   resultsBox.appendChild(buildAgentRun(data));
 
@@ -381,5 +385,140 @@ function buildErrors(errors) {
     list.appendChild(item);
   }
   box.appendChild(list);
+  return box;
+}
+
+function buildGenericAnalysis(title, data) {
+  const box = document.createElement("section");
+  box.className = "analysis";
+
+  const heading = document.createElement("h2");
+  heading.textContent = title;
+  box.appendChild(heading);
+
+  box.appendChild(renderAnalysisValue(data));
+
+  return box;
+}
+
+
+function renderAnalysisValue(value) {
+  const container = document.createElement("div");
+
+  if (value === null || value === undefined || value === "") {
+    container.textContent = "Not available in this validation run.";
+    return container;
+  }
+
+  if (Array.isArray(value)) {
+    const list = document.createElement("ul");
+
+    for (const item of value) {
+      const li = document.createElement("li");
+      li.appendChild(renderAnalysisValue(item));
+      list.appendChild(li);
+    }
+
+    container.appendChild(list);
+    return container;
+  }
+
+  if (typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      if (item === null || item === undefined || item === "") continue;
+
+      const heading = document.createElement("h3");
+      heading.textContent = key.replaceAll("_", " ");
+      container.appendChild(heading);
+
+      container.appendChild(renderAnalysisValue(item));
+    }
+
+    return container;
+  }
+
+  container.textContent = String(value);
+  return container;
+}
+
+function buildAdvisor(data) {
+  const box = document.createElement("section");
+  box.className = "analysis advisor";
+
+  const heading = document.createElement("h2");
+  heading.textContent = "Conversational Startup Advisor";
+  box.appendChild(heading);
+
+  const description = document.createElement("p");
+  description.textContent =
+    "Ask a follow-up question about this startup validation.";
+  box.appendChild(description);
+
+  const input = document.createElement("textarea");
+  input.rows = 3;
+  input.placeholder =
+    "Example: What is the biggest risk for this startup?";
+  box.appendChild(input);
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Ask Advisor";
+  box.appendChild(button);
+
+  const answer = document.createElement("div");
+  answer.className = "advisor-answer";
+  box.appendChild(answer);
+
+  button.addEventListener("click", async function () {
+    const question = input.value.trim();
+
+    if (!question) {
+      answer.textContent = "Please enter a question.";
+      return;
+    }
+
+    button.disabled = true;
+    answer.textContent = "Advisor is thinking...";
+    let serverMessage = "";
+
+    try {
+      const response = await fetch(API_URL + "/advisor", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          question: question,
+          idea: data.idea,
+          market: data.market,
+          competitors: data.competitors,
+          swot: data.swot,
+          mvp: data.mvp,
+          gtm: data.gtm
+        })
+      });
+
+      if (!response.ok) {
+        // The backend explains why (for example Gemini unavailable). Show that
+        // instead of claiming the server could not be reached.
+        try {
+          const body = await response.json();
+          if (typeof body.detail === "string") serverMessage = body.detail;
+        } catch (parseError) {}
+        throw new Error("Advisor request failed");
+      }
+
+      const result = await response.json();
+
+      answer.textContent =
+        result.answer || "The advisor could not provide an answer.";
+    } catch (error) {
+      answer.textContent =
+        serverMessage || "Could not reach the advisor. Please try again.";
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   return box;
 }
