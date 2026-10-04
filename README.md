@@ -1,191 +1,232 @@
-# Litmus - AI Startup Idea Validator
+# Litmus — AI Startup Idea Validator
 
-Litmus is a multi-agent AI platform that helps founders validate startup ideas using AI-powered business analysis and live web research.
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-A user submits a startup idea, and Litmus analyzes the opportunity across the market, competitors, SWOT, MVP, and go-to-market strategy. The results can be downloaded as a validation report or explored through a conversational AI advisor.
+Litmus is a multi-agent AI platform that helps founders validate startup ideas using AI-powered business analysis and web research.
 
-**Built for Orbit ISB 7.0 - Milestones 1 through 4.**
+A submitted startup idea is analyzed across:
 
-## Live Project
+- Market Analysis
+- Competitor Analysis
+- SWOT & Risks
+- MVP Recommendations
+- Go-To-Market Strategy
 
-- **Live Application:** https://orbit-isb-7-0.vercel.app
-- **Backend API:** https://orbit-isb-7-0-staging.onrender.com
-- **API Documentation:** https://orbit-isb-7-0-staging.onrender.com/docs
+The results can be downloaded as an HTML validation report or explored through a conversational AI advisor.
+
+| Resource | Link |
+|----------|------|
+| Live Application | [https://orbit-isb-7-0.vercel.app](https://orbit-isb-7-0.vercel.app) |
+| Backend Staging API | [https://orbit-isb-7-0-staging.onrender.com](https://orbit-isb-7-0-staging.onrender.com) |
+| Interactive API Documentation | [https://orbit-isb-7-0-staging.onrender.com/docs](https://orbit-isb-7-0-staging.onrender.com/docs) |
+
+> **Project Notice:** Built for Orbit ISB 7.0. Milestones 1 through 4 are complete.
+
+---
+
+## Technology Stack
+
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| Frontend | HTML5, CSS3, Vanilla JavaScript | Static user interface hosted via Vercel |
+| Backend | Python, FastAPI, Uvicorn | REST API hosted via Render |
+| AI Model | Google Gemini (`gemini-3.7-flash`) | Language model used for analysis |
+| AI Integration | LangChain Google GenAI (v4.4.0) | Interface for model interactions |
+| Orchestration | LangGraph | Manages the multi-agent pipeline |
+| Web Research | Tavily Search API | Web search for gathering supporting evidence |
+| Configuration | python-dotenv | Environment variable management |
+| Validation | Custom response validation | Structural validation of agent outputs |
+
+---
 
 ## How It Works
 
 ```text
 Startup Idea
-     |
-     v
+     ↓
 Web Search
-     |
-     +---------------------+
-     |                     |
-     v                     v
-Market Analysis      Competitor Analysis
-     |                     |
-     +----------+----------+
-                |
-                v
-          SWOT & Risks
-                |
-                v
-       MVP Recommendations
-                |
-                v
-      Go-To-Market Strategy
-                |
-        +-------+-------+
-        |               |
-        v               v
-   Validation       AI Advisor
-     Report
-Key Features
-Market Research
-
-Uses the Tavily Search API to gather relevant information from the live web.
-
-Market & Customer Analysis
-
-Analyzes market opportunities, demand, and relevant customer segments.
-
-Competitor Analysis
-
-Identifies competitors, existing solutions, and potential market gaps.
-
-SWOT & Risk Analysis
-
-Generates strengths, weaknesses, opportunities, threats, and key execution risks.
-
+     ↓
+Market Analysis + Competitor Analysis
+     ↓
+SWOT & Risks
+     ↓
 MVP Recommendations
-
-Recommends the most important product features and initial MVP scope.
-
+     ↓
 Go-To-Market Strategy
+     ↓
+Validation Context
+     ├── Downloadable HTML Validation Report
+     └── Conversational AI Advisor
+```
 
-Provides recommendations for positioning, target users, acquisition channels, and early market entry.
+### Pipeline Stages
 
-Validation Report
+| Stage | Description |
+|-------|-------------|
+| Web Search | Uses the Tavily Search API to gather relevant web-search evidence. |
+| Market Analysis | Analyzes market opportunities, demand, and relevant customer segments. |
+| Competitor Analysis | Identifies competitors, existing solutions, and potential market gaps. |
+| SWOT & Risks | Generates strengths, weaknesses, opportunities, threats, and key execution risks. |
+| MVP Recommendations | Recommends foundational product features and initial MVP scope. |
+| Go-To-Market Strategy | Provides guidance on positioning, target users, acquisition channels, and early market entry. |
+| Validation Report | Generates a downloadable HTML report containing the compiled validation results. |
+| Conversational AI Advisor | Answers follow-up questions using the completed validation context. |
 
-Generates a downloadable HTML report containing the startup validation results.
+The advisor does not rerun the validation pipeline. The `/advisor` endpoint is stateless: the required validation context is supplied with each request.
 
-Conversational AI Advisor
+---
 
-Allows users to ask follow-up questions about their validation results without rerunning the complete validation pipeline.
+## Project Structure
 
-Validation Pipeline
-Stage	Purpose
-Web Search	Gather relevant live web evidence
-Market Analysis	Analyze market opportunity and customers
-Competitor Analysis	Identify and compare competitors
-SWOT & Risk	Identify strengths, weaknesses, opportunities, threats, and risks
-MVP	Recommend initial product features
-Go-To-Market	Develop an initial market entry strategy
-Validation Report	Present the complete validation results
-AI Advisor	Answer follow-up questions using the validation context
-Technology Stack
-Component	Technology
-Frontend	HTML, CSS, JavaScript
-Backend	Python, FastAPI, Uvicorn
-AI	Google Gemini
-Web Search	Tavily Search API
-Orchestration	LangGraph
-Frontend Hosting	Vercel
-Backend Hosting	Render
-Project Structure
+```text
 orbit-ISB-7.0/
-|
-+-- backend/
-|   +-- main.py
-|   +-- report_generator.py
-|   +-- e2e_test_runner.py
-|   |
-|   +-- agents/
-|       +-- web_search_agent.py
-|       +-- market_agent.py
-|       +-- competitor_agent.py
-|       +-- swot_agent.py
-|       +-- mvp_agent.py
-|       +-- gtm_agent.py
-|       +-- advisor_agent.py
-|       +-- gemini_retry.py
-|       +-- response_validation.py
-|       +-- pipeline.py
-|
-+-- frontend/
-|   +-- index.html
-|   +-- script.js
-|   +-- style.css
-|
-+-- ARCHITECTURE.md
-+-- FINAL_DEMO.md
-+-- render.yaml
-+-- requirements.txt
-+-- LICENSE.txt
-API Endpoints
-Method	Endpoint	Purpose
-GET	/	API health and project information
-POST	/validate	Validate a startup idea
-POST	/advisor	Ask a follow-up question
-POST	/report	Generate the validation report
+├── backend/
+│   ├── main.py                  # API entrypoint and app configuration
+│   ├── report_generator.py      # HTML validation report generation
+│   ├── e2e_test_runner.py       # Offline end-to-end test runner
+│   └── agents/
+│       ├── web_search_agent.py      # Tavily Search API integration
+│       ├── market_agent.py          # Market analysis
+│       ├── competitor_agent.py      # Competitor analysis
+│       ├── swot_agent.py            # SWOT & risks
+│       ├── mvp_agent.py             # MVP recommendations
+│       ├── gtm_agent.py             # Go-to-market strategy
+│       ├── advisor_agent.py         # Context-aware follow-up advisor
+│       ├── gemini_retry.py          # Bounded retry handling for transient Gemini failures
+│       ├── response_validation.py   # Response structure validation
+│       └── pipeline.py              # LangGraph validation pipeline orchestration
+├── frontend/
+│   ├── index.html               # User interface
+│   ├── script.js                # Client logic and local/remote API selection
+│   └── style.css                # Styling
+├── ARCHITECTURE.md              # Technical design documentation
+├── render.yaml                  # Render deployment configuration
+├── requirements.txt             # Python project dependencies
+└── LICENSE.txt                  # MIT License
+```
 
-Interactive API documentation:
+---
 
-https://orbit-isb-7-0-staging.onrender.com/docs
+## Local Installation
 
-Testing
+### Prerequisites
 
-Litmus includes an offline end-to-end test runner covering five startup domains:
+- Python 3.11+
+- pip
 
-SaaS
-Consumer
-Hardware
-Marketplace
-EdTech
+Node.js and npm are **not** required.
 
-Run the tests with:
+### Backend Setup
 
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+Open the `.env` file and add your API keys:
+
+```env
+TAVILY_API_KEY=your_tavily_api_key_here
+GOOGLE_API_KEY=your_google_gemini_api_key_here
+```
+
+Start the backend:
+
+```powershell
+uvicorn main:app --reload
+```
+
+- Local backend: http://127.0.0.1:8000
+- Swagger documentation: http://127.0.0.1:8000/docs
+
+### Frontend Setup
+
+In a second terminal, serve the static frontend with Python's built-in server:
+
+```powershell
+cd frontend
+python -m http.server 5500
+```
+
+- Local frontend: http://127.0.0.1:5500
+
+The frontend automatically selects the local backend when running on localhost.
+
+---
+
+## API Endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/` | Service health and project information |
+| POST | `/validate` | Runs the complete startup validation pipeline |
+| POST | `/advisor` | Answers follow-up questions using the supplied validation context |
+| POST | `/report` | Generates the downloadable HTML validation report |
+
+---
+
+## Testing
+
+Run the offline end-to-end test runner:
+
+```powershell
 python backend/e2e_test_runner.py
+```
 
-The offline test suite uses synthetic fixtures instead of live Tavily and Gemini requests.
+The tests cover five startup domains:
 
-It verifies:
+- SaaS
+- Consumer
+- Hardware
+- Marketplace
+- EdTech
 
-Agent integration
-Pipeline orchestration
-Response validation
-Error handling
-Retry behaviour
-Advisor behaviour
-Report generation
+The tests use synthetic/offline fixtures and do **not** call live Gemini or Tavily APIs. They verify:
 
-Offline tests verify application integration and response contracts. They do not measure the factual quality of live AI-generated analysis.
+- Application integration
+- Pipeline orchestration
+- Response validation
+- Error handling
+- Retry behavior
+- Advisor behavior
+- HTML report generation
 
-Reliability
+These tests verify technical integration and response contracts. They do not measure the factual quality or real-world usefulness of live AI-generated business analysis.
 
-Litmus validates AI-generated responses before passing them to later stages.
+---
 
-Transient Gemini service failures such as 503 UNAVAILABLE are handled using bounded retry attempts.
+## Reliability & Error Handling
 
-Non-retryable failures, such as invalid requests, authentication failures, or quota errors, are reported instead of being repeatedly retried.
+- **Transient failures:** Bounded retry handling (`gemini_retry.py`) is used for temporary Gemini service disruptions such as `503 UNAVAILABLE`. Retries are limited and intended only for temporary issues.
+- **Non-retryable failures:** Authentication errors, invalid requests, and quota errors are not repeatedly retried.
 
-Milestone Progress
-Milestone	Work Completed	Status
-M1	Idea submission, system architecture, and Web Search Agent	Complete
-M2	Market Analysis, Competitor Analysis, and pipeline orchestration	Complete
-M3	SWOT, MVP Recommendations, GTM Strategy, and Conversational Advisor	Complete
-M4	Validation Report, E2E Testing, optimization, and documentation	Complete
-Important Notes
-Live validation depends on the availability and usage limits of the Gemini and Tavily APIs.
-API quotas or temporary service availability can affect live validation.
-AI-generated analysis should be independently verified before making important business decisions.
-Litmus currently does not generate an overall numeric validation score.
-License
+---
 
-This project is licensed under the MIT License.
+## Milestones
 
-See LICENSE.txt for details.
+| Milestone | Scope | Status |
+|-----------|-------|--------|
+| M1 | Idea Submission, Architecture, Web Search | Complete |
+| M2 | Market Analysis, Competitor Analysis, Orchestration | Complete |
+| M3 | SWOT, MVP, GTM, Conversational Advisor | Complete |
+| M4 | Validation Report, E2E Testing, Optimization, Documentation | Complete |
 
+---
 
-This is the version I would use for the **main repository**: professional, readable, and detailed enough f
+## Important Notes
+
+- Live analysis depends on Gemini and Tavily API availability and usage limits.
+- Temporary upstream service failures or quota limits can affect live validation.
+- AI-generated business analysis should be independently reviewed before important business decisions.
+- The system does not produce an overall numeric validation score.
+
+---
+
+## License
+
+Licensed under the MIT License. See `LICENSE.txt` for details.
