@@ -5,15 +5,21 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
     from response_validation import parse_json_response
+    from gemini_retry import invoke_with_retry
 except ImportError:
     from agents.response_validation import parse_json_response
+    from agents.gemini_retry import invoke_with_retry
 
 load_dotenv()
 
 MODEL = "gemini-3.7-flash"
 THINKING_BUDGET = 512
 
-llm = ChatGoogleGenerativeAI(model=MODEL, thinking_budget=THINKING_BUDGET)
+# max_retries=0 turns off the client's own hidden retries (default 6, which
+# include 429). Retrying is handled by gemini_retry.invoke_with_retry.
+llm = ChatGoogleGenerativeAI(
+    model=MODEL, thinking_budget=THINKING_BUDGET, max_retries=0
+)
 
 
 def parse_json(text):
@@ -108,7 +114,7 @@ def develop_gtm_strategy(idea, market, competitors, swot=None):
     """Create a structured GTM strategy, or return None on model/JSON failure."""
     prompt = build_prompt(idea, market, competitors, swot)
     try:
-        reply = llm.invoke(prompt)
+        reply = invoke_with_retry(llm, prompt, "GTM agent")
         response_text = getattr(reply, "text", None)
     except Exception as error:
         print("GTM strategy agent failed:", error)
