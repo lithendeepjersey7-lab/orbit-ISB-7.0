@@ -104,6 +104,11 @@ def swot_node(state: State) -> dict:
     )
     if result is None:
         return {"swot": None, "errors": [_agent_failure("SWOT agent")]}
+    if result.get("analysis_mode") == "conservative_fallback":
+        return {
+            "swot": result,
+            "errors": ["SWOT agent used a conservative fallback because Gemini was unavailable"],
+        }
     return {"swot": result}
 
 
@@ -119,6 +124,11 @@ def mvp_node(state: State) -> dict:
     )
     if result is None:
         return {"mvp": None, "errors": [_agent_failure("MVP agent")]}
+    if result.get("analysis_mode") == "conservative_fallback":
+        return {
+            "mvp": result,
+            "errors": ["MVP agent used a conservative fallback because Gemini was unavailable"],
+        }
     return {"mvp": result}
 
 

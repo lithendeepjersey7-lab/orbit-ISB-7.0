@@ -281,7 +281,12 @@ def _run_response_validation_checks():
             failures.append(name + " parser accepted a wrong nested type")
 
         with patch.object(module.llm, "invoke", return_value=None):
-            if invoke_agent(module) is not None:
+            empty_result = invoke_agent(module)
+            expected_fallback = name in {"swot", "mvp"}
+            if (empty_result is not None) != expected_fallback or (
+                expected_fallback
+                and empty_result.get("analysis_mode") != "conservative_fallback"
+            ):
                 failures.append(name + " agent accepted a response without text")
 
         with patch.object(
@@ -293,7 +298,13 @@ def _run_response_validation_checks():
             ],
         ) as invoke:
             repaired = invoke_agent(module)
-            if repaired != valid_payload or invoke.call_count != 2:
+            recovered = repaired == valid_payload
+            fallback_used = (
+                name in {"swot", "mvp"}
+                and isinstance(repaired, dict)
+                and repaired.get("analysis_mode") == "conservative_fallback"
+            )
+            if (not recovered and not fallback_used) or invoke.call_count != 2:
                 failures.append(name + " agent did not recover from one malformed JSON response")
 
         with patch.object(
@@ -304,7 +315,13 @@ def _run_response_validation_checks():
                 SimpleNamespace(text="still not JSON"),
             ],
         ) as invoke:
-            if invoke_agent(module) is not None or invoke.call_count != 2:
+            unusable = invoke_agent(module)
+            expected_fallback = name in {"swot", "mvp"}
+            if (
+                (unusable is not None) != expected_fallback
+                or (expected_fallback and unusable.get("analysis_mode") != "conservative_fallback")
+                or invoke.call_count != 2
+            ):
                 failures.append(name + " agent did not bound JSON repair to one attempt")
 
         if make_semantically_invalid is not None:
@@ -315,8 +332,47 @@ def _run_response_validation_checks():
                 "invoke",
                 return_value=SimpleNamespace(text=json.dumps(semantic_invalid)),
             ):
-                if invoke_agent(module) is not None:
+                invalid_result = invoke_agent(module)
+                if name in {"swot", "mvp"}:
+                    if not invalid_result or invalid_result.get("analysis_mode") != "conservative_fallback":
+                        failures.append(name + " did not fall back from semantically invalid output")
+                elif invalid_result is not None:
                     failures.append(name + " agent accepted an invalid domain-specific output")
+
+    market_context = {
+        "segments": [{"name": "independent grocery stores"}],
+        "evidence_gaps": "Willingness to pay is not established.",
+    }
+    competitor_context = {
+        "competitors": [{"name": "Existing inventory platform"}],
+        "market_gaps": "Small-store demand forecasting is underserved.",
+    }
+    for name, module, call in (
+        (
+            "swot",
+            importlib.import_module("agents.swot_agent"),
+            lambda module: module.analyse_swot(
+                "AI inventory planning for small grocers",
+                market_context,
+                competitor_context,
+            ),
+        ),
+        (
+            "mvp",
+            importlib.import_module("agents.mvp_agent"),
+            lambda module: module.recommend_mvp(
+                "AI inventory planning for small grocers",
+                market_context,
+                competitor_context,
+            ),
+        ),
+    ):
+        with patch.object(module, "invoke_with_json_repair", side_effect=RuntimeError("Gemini unavailable")):
+            fallback = call(module)
+        if not fallback or fallback.get("analysis_mode") != "conservative_fallback":
+            failures.append(name + " agent did not return a clearly marked fallback on provider failure")
+        elif not fallback.get("analysis_note"):
+            failures.append(name + " fallback omitted its limitation notice")
 
     return failures
 
@@ -653,6 +709,26 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
             failures.append("pipeline: unavailable market context was not represented as empty")
         if gtm_call.call_args.args[1] != {}:
             failures.append("pipeline: unavailable market context was not represented in GTM input")
+
+    swot_module = importlib.import_module("agents.swot_agent")
+    mvp_module = importlib.import_module("agents.mvp_agent")
+    with (
+        patch.object(pipeline_module, "search_idea", return_value=fixtures["search"]),
+        patch.object(pipeline_module, "analyse_market", return_value=fixtures["market"]),
+        patch.object(pipeline_module, "analyse_competitors", return_value=fixtures["competitors"]),
+        patch.object(swot_module, "invoke_with_json_repair", side_effect=RuntimeError("Gemini unavailable")),
+        patch.object(mvp_module, "invoke_with_json_repair", side_effect=RuntimeError("Gemini unavailable")),
+        patch.object(pipeline_module, "develop_gtm_strategy", return_value=fixtures["gtm"]),
+    ):
+        result = app_module.run_pipeline("retry test idea")
+    if not result.get("swot") or result["swot"].get("analysis_mode") != "conservative_fallback":
+        failures.append("pipeline: SWOT provider failure did not return the labelled fallback")
+    if not result.get("mvp") or result["mvp"].get("analysis_mode") != "conservative_fallback":
+        failures.append("pipeline: MVP provider failure did not return the labelled fallback")
+    if not any("SWOT agent used a conservative fallback" in error for error in result.get("errors", [])):
+        failures.append("pipeline: SWOT fallback warning was not surfaced")
+    if not any("MVP agent used a conservative fallback" in error for error in result.get("errors", [])):
+        failures.append("pipeline: MVP fallback warning was not surfaced")
 
     # 6. Pipeline: a model reply that is not usable JSON keeps the old message.
     with (
