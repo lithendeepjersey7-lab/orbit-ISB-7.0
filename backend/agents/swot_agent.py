@@ -96,6 +96,74 @@ def build_prompt(idea, market, competitors):
     )
 
 
+def _fallback_analysis(idea, market, competitors):
+    """Return a clearly labelled, context-limited draft when Gemini is down."""
+    segments = market.get("segments") or []
+    segment_names = [
+        segment.get("name", "").strip()
+        for segment in segments
+        if isinstance(segment, dict) and segment.get("name", "").strip()
+    ]
+    competitor_names = [
+        company.get("name", "").strip()
+        for company in competitors.get("competitors") or []
+        if isinstance(company, dict) and company.get("name", "").strip()
+    ]
+    market_gap = str(competitors.get("market_gaps") or "").strip()
+    evidence_gaps = str(market.get("evidence_gaps") or "").strip()
+    audience = ", ".join(segment_names[:2]) or "the intended customer"
+
+    return {
+        "strengths": [
+            "The idea states a concrete problem to test: " + idea.strip()[:240],
+            "The available analysis identifies an initial pilot audience: " + audience + ".",
+        ],
+        "weaknesses": [
+            evidence_gaps or (
+                "The supplied analysis does not establish willingness to pay or "
+                "repeat usage; both need customer validation."
+            ),
+        ],
+        "opportunities": [
+            market_gap or (
+                "No competitor gap was confirmed in the available analysis; "
+                "interview target customers to identify unmet needs."
+            ),
+        ],
+        "threats": [
+            (
+                "Existing alternatives include " + ", ".join(competitor_names[:4])
+                + "; their ability to serve this audience needs validation."
+                if competitor_names
+                else "Competitive evidence is incomplete; direct alternatives remain to be verified."
+            ),
+        ],
+        "risks": [
+            {
+                "category": "market",
+                "risk": "The target customer's urgency and willingness to pay are not established in the supplied evidence.",
+                "likelihood": "medium",
+                "impact": "high",
+                "mitigation": "Interview target customers and request a concrete pilot or paid commitment before expanding scope.",
+            },
+            {
+                "category": "product",
+                "risk": "The proposed core workflow may not solve the stated problem well enough for repeat use.",
+                "likelihood": "medium",
+                "impact": "high",
+                "mitigation": "Prototype the narrowest end-to-end workflow and observe target users completing it.",
+            },
+        ],
+        "analysis_mode": "conservative_fallback",
+        "analysis_note": (
+            "Gemini was unavailable or returned an unusable response, so this "
+            "is a conservative draft based only on the supplied idea and "
+            "analyses. Risk ratings are provisional; validate them with "
+            "customers before acting."
+        ),
+    }
+
+
 def analyse_swot(idea, market, competitors):
     """Turn market and competitor analyses into structured SWOT results.
 
@@ -109,9 +177,9 @@ def analyse_swot(idea, market, competitors):
         )
     except Exception as error:
         print("SWOT agent failed:", error)
-        return None
+        return _fallback_analysis(idea, market, competitors)
     if result is None:
-        return None
+        return _fallback_analysis(idea, market, competitors)
     categories = {"market", "product", "technical", "financial", "regulatory", "operational"}
     levels = {"low", "medium", "high"}
     if any(
@@ -122,5 +190,5 @@ def analyse_swot(idea, market, competitors):
         or not risk["mitigation"].strip()
         for risk in result["risks"]
     ):
-        return None
+        return _fallback_analysis(idea, market, competitors)
     return result

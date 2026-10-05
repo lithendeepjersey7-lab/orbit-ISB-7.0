@@ -435,6 +435,11 @@ If either market or competitor analysis succeeds, downstream strategy agents
 continue from that available context and receive an empty object for the
 unavailable analysis instead of skipping the rest of the pipeline.
 
+SWOT and MVP also return a conservative, context-limited draft when Gemini
+fails or produces unusable output. The response includes `analysis_mode` and
+`analysis_note`, and the pipeline surfaces a warning; these drafts are not
+represented as model-generated analysis and should be validated with customers.
+
 The browser carries up to four question/answer pairs into advisor follow-ups;
 there is no server-side user or session store. The advisor can use history to
 resolve context but must cite current report/source inputs.
