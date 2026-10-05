@@ -376,9 +376,10 @@ bounded JSON-repair attempt. The offline integration runner stubs all external p
 consumer, hardware, marketplace, and EdTech ideas, including agent schemas,
 failures, advisor calls, and PDF output.
 
-If either market or competitor analysis succeeds, downstream strategy agents
-continue from that available context and receive an empty object for the
-unavailable analysis instead of skipping the rest of the pipeline.
+Downstream strategy agents continue from whatever market and competitor
+context is available. SWOT and MVP still run when both research stages fail;
+their clearly labelled fallback drafts use only the idea and mark the missing
+evidence instead of skipping these important sections.
 
 SWOT and MVP also return a conservative, context-limited draft when Gemini
 fails or produces unusable output. The response includes `analysis_mode` and

@@ -730,6 +730,20 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
     if not any("MVP agent used a conservative fallback" in error for error in result.get("errors", [])):
         failures.append("pipeline: MVP fallback warning was not surfaced")
 
+    with (
+        patch.object(pipeline_module, "search_idea", return_value=fixtures["search"]),
+        patch.object(pipeline_module, "analyse_market", return_value=None),
+        patch.object(pipeline_module, "analyse_competitors", return_value=None),
+        patch.object(swot_module, "invoke_with_json_repair", side_effect=RuntimeError("Gemini unavailable")),
+        patch.object(mvp_module, "invoke_with_json_repair", side_effect=RuntimeError("Gemini unavailable")),
+        patch.object(pipeline_module, "develop_gtm_strategy", return_value=fixtures["gtm"]),
+    ):
+        result = app_module.run_pipeline("retry test idea")
+    if not result.get("swot") or result["swot"].get("analysis_mode") != "conservative_fallback":
+        failures.append("pipeline: SWOT was skipped when market and competitor research were missing")
+    if not result.get("mvp") or result["mvp"].get("analysis_mode") != "conservative_fallback":
+        failures.append("pipeline: MVP was skipped when market and competitor research were missing")
+
     # 6. Pipeline: a model reply that is not usable JSON keeps the old message.
     with (
         patch.object(pipeline_module, "search_idea", return_value=fixtures["search"]),
