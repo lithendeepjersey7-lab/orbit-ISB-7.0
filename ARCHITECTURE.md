@@ -420,9 +420,9 @@ covered in section 7.
 
 `response_validation.py` enforces required JSON fields and nested types.
 Pipeline failures degrade partially and are reported. Transient Gemini 503
-errors receive four bounded retries; if Gemini 3.7 Flash stays overloaded, the
-same prompt is sent to Gemini 2.5 Flash with its own bounded retry budget. A
-malformed structured reply receives one bounded JSON-repair attempt. The
+errors receive one quick retry; if Gemini 3.7 Flash stays overloaded, the same
+prompt is sent to Gemini 2.5 Flash with one retry. A malformed structured
+reply receives one bounded JSON-repair attempt. The
 offline integration runner stubs all external providers and covers SaaS,
 consumer, hardware, marketplace, and EdTech ideas, including agent schemas,
 failures, advisor calls, and PDF output.

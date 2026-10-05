@@ -26,9 +26,9 @@ import re
 import threading
 import time
 
-MAX_ATTEMPTS = 4
+MAX_ATTEMPTS = 2
 FALLBACK_MODEL = "gemini-2.5-flash"
-BASE_DELAY_SECONDS = 4.0  # waits ~4s, 8s, then 16s (plus up to 1s jitter)
+BASE_DELAY_SECONDS = 1.5  # fail over quickly enough to preserve the request budget
 
 # The last agent-call failure seen by THIS thread. The pipeline runs each node
 # in a worker thread and reads this straight after the agent returns, in the
