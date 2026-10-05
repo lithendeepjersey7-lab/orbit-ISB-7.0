@@ -23,6 +23,7 @@ try:
     from swot_agent import analyse_swot
     from mvp_agent import recommend_mvp
     from gtm_agent import develop_gtm_strategy
+    from gemini_retry import take_failure
 except ImportError:
     from agents.web_search_agent import search_idea
     from agents.market_agent import analyse_market
@@ -30,6 +31,7 @@ except ImportError:
     from agents.swot_agent import analyse_swot
     from agents.mvp_agent import recommend_mvp
     from agents.gtm_agent import develop_gtm_strategy
+    from agents.gemini_retry import take_failure
 
 
 class State(TypedDict):
@@ -52,6 +54,19 @@ class State(TypedDict):
     errors: Annotated[list, operator.add]
 
 
+def _agent_failure(label: str) -> str:
+    """Explain why an agent produced nothing.
+
+    If the Gemini call itself failed (for example 503 after retries) say so,
+    including the original error. Otherwise the model answered but its reply
+    was empty or failed validation, which is the old "no usable JSON" case.
+    """
+    reason = take_failure()
+    if reason:
+        return label + " failed: " + reason
+    return label + " returned no usable JSON"
+
+
 def search_node(state: State) -> dict:
     """Milestone 1's agent, unchanged, as step one."""
     try:
@@ -65,7 +80,7 @@ def market_node(state: State) -> dict:
         return {"market": None, "errors": ["Market agent skipped: no search results"]}
     result = analyse_market(state["idea"], state["search"]["results"])
     if result is None:
-        return {"market": None, "errors": ["Market agent returned no usable JSON"]}
+        return {"market": None, "errors": [_agent_failure("Market agent")]}
     return {"market": result}
 
 
@@ -74,7 +89,7 @@ def competitor_node(state: State) -> dict:
         return {"competitors": None, "errors": ["Competitor agent skipped: no search results"]}
     result = analyse_competitors(state["idea"], state["search"]["results"])
     if result is None:
-        return {"competitors": None, "errors": ["Competitor agent returned no usable JSON"]}
+        return {"competitors": None, "errors": [_agent_failure("Competitor agent")]}
     return {"competitors": result}
 
 
@@ -88,7 +103,7 @@ def swot_node(state: State) -> dict:
         state["competitors"],
     )
     if result is None:
-        return {"swot": None, "errors": ["SWOT agent returned no usable JSON"]}
+        return {"swot": None, "errors": [_agent_failure("SWOT agent")]}
     return {"swot": result}
 
 
@@ -100,9 +115,10 @@ def mvp_node(state: State) -> dict:
         state["idea"],
         state["market"],
         state["competitors"],
+        state.get("swot"),
     )
     if result is None:
-        return {"mvp": None, "errors": ["MVP agent returned no usable JSON"]}
+        return {"mvp": None, "errors": [_agent_failure("MVP agent")]}
     return {"mvp": result}
 
 
@@ -117,7 +133,7 @@ def gtm_node(state: State) -> dict:
         state["swot"],
     )
     if result is None:
-        return {"gtm": None, "errors": ["GTM agent returned no usable JSON"]}
+        return {"gtm": None, "errors": [_agent_failure("GTM agent")]}
     return {"gtm": result}
 
 

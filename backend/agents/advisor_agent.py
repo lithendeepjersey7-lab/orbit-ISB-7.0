@@ -5,15 +5,21 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
     from response_validation import parse_json_response
+    from gemini_retry import invoke_with_retry
 except ImportError:
     from agents.response_validation import parse_json_response
+    from agents.gemini_retry import invoke_with_retry
 
 load_dotenv()
 
 MODEL = "gemini-3.7-flash"
 THINKING_BUDGET = 512
 
-llm = ChatGoogleGenerativeAI(model=MODEL, thinking_budget=THINKING_BUDGET)
+# max_retries=0 turns off the client's own hidden retries (default 6, which
+# include 429). Retrying is handled by gemini_retry.invoke_with_retry.
+llm = ChatGoogleGenerativeAI(
+    model=MODEL, thinking_budget=THINKING_BUDGET, max_retries=0
+)
 
 
 def parse_json(text):
@@ -27,13 +33,15 @@ def parse_json(text):
 SHAPE = """{
   "answer": "",
   "has_sufficient_context": true,
-  "missing_context": []
+  "missing_context": [],
+  "citations": [{"source_id": "", "reason": ""}]
 }"""
 
 RESPONSE_SCHEMA = {
     "answer": str,
     "has_sufficient_context": bool,
     "missing_context": [str],
+    "citations": [{"source_id": str, "reason": str}],
 }
 
 RULES = """RULES:
@@ -48,11 +56,16 @@ RULES = """RULES:
    material part of the question remains unanswered.
 4. Distinguish a direct finding from an inference. Label an inference with
    exactly "Inference (from provided context):".
-5. Return ONLY valid JSON in exactly the requested shape, with no commentary
+5. Cite every factual answer using source_id values from the permitted source
+   list. Never invent IDs or URLs. Cite the relevant report section or live
+   search result; if nothing supports a claim, state that limitation.
+6. Use the conversation history to resolve follow-ups, but do not treat earlier
+   assistant statements as evidence unless they are supported by the report.
+7. Return ONLY valid JSON in exactly the requested shape, with no commentary
    before or after it."""
 
 
-def build_prompt(question, idea, market, competitors, swot, mvp, gtm):
+def build_prompt(question, idea, market, competitors, swot, mvp, gtm, history=None, sources=None):
     """Assemble an advisor prompt from the complete pipeline analysis."""
     context = {
         "market": market,
@@ -60,6 +73,8 @@ def build_prompt(question, idea, market, competitors, swot, mvp, gtm):
         "swot": swot,
         "mvp": mvp,
         "gtm": gtm,
+        "conversation_history": history or [],
+        "permitted_sources": sources or [],
     }
     return (
         "You are a concise startup advisor answering a founder's follow-up "
@@ -73,11 +88,11 @@ def build_prompt(question, idea, market, competitors, swot, mvp, gtm):
     )
 
 
-def answer_follow_up(question, idea, market, competitors, swot, mvp, gtm):
+def answer_follow_up(question, idea, market, competitors, swot, mvp, gtm, history=None, sources=None):
     """Answer a follow-up from pipeline context, or return None on failure."""
-    prompt = build_prompt(question, idea, market, competitors, swot, mvp, gtm)
+    prompt = build_prompt(question, idea, market, competitors, swot, mvp, gtm, history, sources)
     try:
-        reply = llm.invoke(prompt)
+        reply = invoke_with_retry(llm, prompt, "Advisor agent")
         response_text = getattr(reply, "text", None)
     except Exception as error:
         print("Startup advisor failed:", error)

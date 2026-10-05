@@ -5,15 +5,21 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
     from response_validation import parse_json_response
+    from gemini_retry import invoke_with_retry
 except ImportError:
     from agents.response_validation import parse_json_response
+    from agents.gemini_retry import invoke_with_retry
 
 load_dotenv()
 
 MODEL = "gemini-3.7-flash"
 THINKING_BUDGET = 512
 
-llm = ChatGoogleGenerativeAI(model=MODEL, thinking_budget=THINKING_BUDGET)
+# max_retries=0 turns off the client's own hidden retries (default 6, which
+# include 429). Retrying is handled by gemini_retry.invoke_with_retry.
+llm = ChatGoogleGenerativeAI(
+    model=MODEL, thinking_budget=THINKING_BUDGET, max_retries=0
+)
 
 
 def parse_json(text):
@@ -33,6 +39,15 @@ SHAPE = """{
   "customer_acquisition_channels": [
     {"channel": "", "rationale": "", "low_cost_test": ""}
   ],
+  "first_100_users": {
+    "plan": [""],
+    "success_signal": ""
+  },
+  "monetization": {
+    "model": "",
+    "pricing_hypothesis": "",
+    "validation_test": ""
+  },
   "first_90_days": {
     "days_1_30": [""],
     "days_31_60": [""],
@@ -56,6 +71,12 @@ RESPONSE_SCHEMA = {
     "rationale": str,
     "low_cost_test": str,
   }],
+  "first_100_users": {"plan": [str], "success_signal": str},
+  "monetization": {
+    "model": str,
+    "pricing_hypothesis": str,
+    "validation_test": str,
+  },
   "first_90_days": {
     "days_1_30": [str],
     "days_31_60": [str],
@@ -76,9 +97,12 @@ RULES = """RULES:
    execute. Do not assume access to a large audience or paid acquisition budget.
 5. Make the 90-day actions sequential, specific, and focused on learning and
    validating demand before scaling. Do not promise outcomes.
-6. If the context does not support a requested detail, say that it needs
+6. Give a practical, low-cost plan to recruit the first 100 users and state
+   what signal would count as meaningful validation. Include a monetization
+   model and clearly label any pricing as a hypothesis to test.
+7. If the context does not support a requested detail, say that it needs
    validation instead of filling the gap with an unsupported claim.
-7. Keep each item concise and actionable. Return ONLY valid JSON in exactly
+8. Keep each item concise and actionable. Return ONLY valid JSON in exactly
    the requested shape, with no commentary before or after it."""
 
 
@@ -108,7 +132,7 @@ def develop_gtm_strategy(idea, market, competitors, swot=None):
     """Create a structured GTM strategy, or return None on model/JSON failure."""
     prompt = build_prompt(idea, market, competitors, swot)
     try:
-        reply = llm.invoke(prompt)
+        reply = invoke_with_retry(llm, prompt, "GTM agent")
         response_text = getattr(reply, "text", None)
     except Exception as error:
         print("GTM strategy agent failed:", error)
@@ -117,6 +141,10 @@ def develop_gtm_strategy(idea, market, competitors, swot=None):
     if result is None:
         return None
     if not result["early_target_customers"] or not result["customer_acquisition_channels"]:
+        return None
+    if not result["first_100_users"]["plan"] or not result["first_100_users"]["success_signal"].strip():
+        return None
+    if not all(result["monetization"][key].strip() for key in ("model", "pricing_hypothesis", "validation_test")):
         return None
     if any(not result["first_90_days"][period] for period in ("days_1_30", "days_31_60", "days_61_90")):
         return None

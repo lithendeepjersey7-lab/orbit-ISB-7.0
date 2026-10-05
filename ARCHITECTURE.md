@@ -4,31 +4,31 @@ AI Startup Idea Validator. Orbit ISB 7.0, Milestones 1 through 4.
 
 ## 1. What the product does
 
-A founder submits a startup idea through the frontend. The backend searches
-the live web, analyzes market opportunity and competitors, then produces SWOT,
-MVP, and go-to-market recommendations. The validation response includes the
-available analyses and search run statistics. The user can download the
-validation result as a self-contained HTML report.
+A founder submits an idea through the web UI. Tavily gathers live evidence,
+then the analysis agents produce market, competitor, SWOT/risk, MVP, and GTM
+outputs.
 
-The backend also exposes a context-grounded follow-up Advisor endpoint. It is
-not currently connected to a question form in the frontend.
+The response includes cited search sources, structured analyses, a PDF report,
+and a follow-up advisor grounded in report sections and live-search results.
+
+Milestones 1 and 2 provide research and market/competitor analysis. Milestone
+3 adds strategy analyses and the conversational advisor; Milestone 4 adds PDF
+reporting, pipeline UI, and offline integration coverage.
 
 ## 2. What an "agent" means in this system
 
 An agent here is a component with one job, a fixed input, a fixed output, and a
 specific set of tools it is allowed to use.
 
-There are six Gemini-backed analysis/advisor agents plus the web search agent:
-
 | Agent | Job | Tool |
 |---|---|---|
 | Web Search | gather web evidence about an idea | Tavily Search API |
 | Market Opportunity | market size, growth, customer segments | Gemini API |
 | Competitor Discovery | competitors, comparison, market gaps | Gemini API |
-| SWOT | strengths, weaknesses, opportunities, threats and execution risks | Gemini API |
-| MVP Recommendation | target audience and must-have/nice-to-have features | Gemini API |
-| Go-to-Market | positioning, early customers, channels, first 90 days | Gemini API |
-| Startup Advisor | answer one follow-up using supplied analysis context | Gemini API |
+| SWOT & Risk | SWOT and categorized risks with likelihood, impact, mitigations | Gemini API |
+| MVP Planning | Must/Should/Nice-to-have features and phased build order | Gemini API |
+| Go-to-Market | positioning, channels, first 100 users, monetization, 90-day plan | Gemini API |
+| Conversational Advisor | grounded follow-ups with source IDs | Gemini API |
 
 The Web Search Agent uses no LLM; its fixed input/output contract is its role.
 The Advisor is an API capability outside the validation graph: each request
@@ -41,28 +41,33 @@ agents live in `backend/agents/`; report generation is a separate module.
 
 ```
 Browser (index.html + script.js)
-  | POST /validate {"idea": "..."}
-  v
-FastAPI (main.py) -> LangGraph (agents/pipeline.py)
-  |
-  v
-   Web Search -> Tavily
-  |
-  +----> Market Agent ------+
-  +----> Competitor Agent --+  (parallel)
-          v
-          SWOT -> MVP -> GTM
-          |
-          JSON validation response
-       |             |
-       v             v
-     frontend results   POST /report
-              |
-              v
-             downloadable HTML
-
-Follow-up questions use POST /advisor with the question and analysis context;
-this route does not run as part of the validation graph.
+        |
+        |  POST /validate   {"idea": "..."}
+        v
+FastAPI backend (main.py)
+        |
+        |  calls validate(idea)
+        v
+Pipeline (agents/pipeline.py)  -  a LangGraph state graph
+        |
+        v
+   Web Search Agent  ------> Tavily API
+        |
+        |  ranked results are written into shared state
+        |
+        +---------------------------+
+        |                           |
+        v                           v
+  Market Agent               Competitor Agent      (these two run
+        |                           |               at the same time)
+        v                           v
+    Gemini API                 Gemini API
+        |                           |
+        +------------+--------------+
+                     |
+                SWOT -> MVP -> GTM
+                     |
+        JSON response -> UI -> advisor / PDF report
 ```
 
 The frontend never talks to Tavily or Gemini directly. Both keys live on the
@@ -222,10 +227,8 @@ START -> search -+-> market      -+
                  +-> competitors -+-> swot -> mvp -> gtm -> END
 ```
 
-**The two analysts run at the same time.** Neither needs the other's output -
-both read the search results - so running them one after the other only made
-the founder wait longer for the same answer. In LangGraph, "run in parallel" is
-simply two edges out of one node.
+**Market and competitor analysts run at the same time.** Both read search
+results; SWOT then follows both branches, followed by MVP and GTM.
 
 **The `errors` key needs a reducer.** It is declared as
 `Annotated[list, operator.add]`. Both analysts can append to it, and when two
@@ -350,42 +353,20 @@ separately:
 }
 ```
 
-The `market`, `competitors`, `swot`, `mvp`, or `gtm` field may be `null` if the
-stage cannot produce a valid result or its prerequisites are unavailable;
-`errors` describes failures and skipped stages. `elapsed_seconds` is the
-validation pipeline duration, not a live AI-quality signal.
+Any failed agent output is `null`; `errors` reports the failed or skipped stage.
 
 **POST /advisor**
 
-Request fields:
+**POST /advisor** accepts analysis outputs, live search results, and recent
+conversation turns. It returns an answer, sufficiency flag, missing context,
+and citations resolved against only supplied report sections and URLs, labeled
+`From report` or `From live search`.
 
-```json
-{
-  "question": "Which segment should we test first?",
-  "idea": "...",
-  "market": {},
-  "competitors": {},
-  "swot": {},
-  "mvp": {},
-  "gtm": {}
-}
-```
+**POST /report** returns a downloadable PDF (`application/pdf`) with analysis
+sections, sources, roadmap, and a 0–100 evidence-coverage score. This measures
+report completeness, not business viability or investment merit.
 
-Returns `{"answer":"...","has_sufficient_context":true,"missing_context":[]}`.
-When evidence is insufficient, the answer should say so, the boolean is false,
-and `missing_context` lists the absent information. The endpoint does not store
-prior turns or fetch context itself.
-
-**POST /report**
-
-Request body: the complete JSON object returned by `/validate`. Response:
-`text/html` with a `Content-Disposition: attachment` filename. The frontend
-initiates this request when the user selects Download validation report.
-
-**GET /** returns the API service message (the milestone number in this
-response is a legacy value and is not a reliable release-status indicator).
-
-## 11. Decisions and why
+## 9. Decisions and why
 
 **Query expansion instead of searching the raw sentence.** Explained in
 section 4. It is the main reason the results are useful instead of generic.
@@ -435,15 +416,21 @@ quality check on it was worth more.
 **The analysts run concurrently, the pipeline degrades partially.** Both
 covered in section 7.
 
-**Response validation is shared.** Gemini-backed agents use
-`agents/response_validation.py` for JSON parsing and required-shape/type checks;
-agent-specific constraints remain in their owning modules.
+## 10. Milestones 3 and 4: contracts and limitations
 
-## 12. Current boundaries and operational notes
+`response_validation.py` enforces required JSON fields and nested types.
+Pipeline failures degrade partially and are reported; bounded retries apply
+only to transient Gemini 503 errors. The offline integration runner stubs all
+external providers and covers SaaS, consumer, hardware, marketplace, and
+EdTech ideas, including agent schemas, failures, advisor calls, and PDF output.
 
-- There is no overall numeric startup-validation score in the response.
-- The Advisor is available over the API but has no frontend interaction.
-- The five-domain runner uses offline fixtures and is not a live AI-quality test.
-- CORS currently allows all origins; restrict it before exposing the API
-  broadly.
-- Repeated requests are not cached and can use Tavily/Gemini quota again.
+The browser carries up to four question/answer pairs into advisor follow-ups;
+there is no server-side user or session store. The advisor can use history to
+resolve context but must cite current report/source inputs.
+
+The frontend offers section-level “Ask about this” actions, suggested
+questions, citations, and PDF download. Report status uses a transparent
+evidence-coverage score, not an unsupported prediction of startup success.
+
+Operational follow-ups include restricting wildcard CORS before public
+production use and defining a freshness policy before adding search caching.

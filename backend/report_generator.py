@@ -1,114 +1,207 @@
-import html
+"""Generate a downloadable, evidence-conscious PDF validation report."""
+
 import re
+from io import BytesIO
+
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import (
+    HRFlowable,
+    KeepTogether,
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
+from xml.sax.saxutils import escape
 
 
-def _label(value):
-    return " ".join(part.capitalize() for part in value.replace("_", " ").split())
-
-
-def _render_value(value):
-    if isinstance(value, dict):
-        rows = []
-        for key, item in value.items():
-            if item is None or item == "" or item == [] or item == {}:
-                continue
-            rows.append(
-                "<div class=\"report-field\"><dt>"
-                + html.escape(_label(str(key)))
-                + "</dt><dd>"
-                + _render_value(item)
-                + "</dd></div>"
-            )
-        return "<dl>" + "".join(rows) + "</dl>" if rows else ""
-
-    if isinstance(value, list):
-        items = [item for item in value if item is not None and item != ""]
-        if not items:
-            return ""
-        if all(not isinstance(item, (dict, list)) for item in items):
-            return "<ul>" + "".join(
-                "<li>" + html.escape(str(item)) + "</li>" for item in items
-            ) + "</ul>"
-        return "<div class=\"report-items\">" + "".join(
-            "<div class=\"report-item\">" + _render_value(item) + "</div>"
-            for item in items
-        ) + "</div>"
-
-    if isinstance(value, bool):
-        return "Yes" if value else "No"
-    if value is None or value == "":
-        return ""
-    return html.escape(str(value)).replace("\n", "<br>")
-
-
-def _section(title, data):
-    rendered = _render_value(data)
-    if not rendered:
-        rendered = '<p class="unavailable">Not available in this validation run.</p>'
-    return (
-        "<section><h2>" + html.escape(title) + "</h2>"
-        + rendered + "</section>"
-    )
-
-
-def build_validation_report(validation_result):
-    """Build a self-contained HTML report from the pipeline's result object."""
-    result = validation_result if isinstance(validation_result, dict) else {}
-    executive_summary = {
-        "startup_idea": result.get("idea"),
-        "summary": result.get("summary"),
-    }
-    sections = [
-        _section("1. Startup Idea / Executive Summary", executive_summary),
-        _section("2. Market Analysis", result.get("market")),
-        _section("3. Competitor Analysis", result.get("competitors")),
-        _section("4. SWOT & Risks", result.get("swot")),
-        _section("5. MVP Recommendations", result.get("mvp")),
-        _section("6. Go-To-Market Strategy", result.get("gtm")),
-    ]
-    title = html.escape(str(result.get("idea") or "Startup Validation Report"))
-    return """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Startup Validation Report</title>
-  <style>
-    :root { color-scheme: light; --ink: #202a33; --muted: #5e6b75; --line: #d9e0e5; --accent: #245f65; }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: #eef2f3; color: var(--ink); font: 16px/1.6 Georgia, "Times New Roman", serif; }
-    main { max-width: 900px; margin: 36px auto; padding: 52px 64px; background: #fff; box-shadow: 0 8px 32px #15252a18; }
-    header { padding-bottom: 24px; border-bottom: 2px solid var(--accent); }
-    .eyebrow { margin: 0 0 8px; color: var(--accent); font: 700 12px/1.4 Arial, sans-serif; letter-spacing: .1em; text-transform: uppercase; }
-    h1 { margin: 0; font-size: 34px; line-height: 1.2; }
-    .idea { margin: 10px 0 0; color: var(--muted); font-size: 18px; }
-    section { padding: 22px 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
-    h2 { margin: 0 0 14px; color: var(--accent); font: 700 19px/1.35 Arial, sans-serif; }
-    dl { margin: 0; }
-    .report-field { margin: 0 0 12px; }
-    dt { color: var(--muted); font: 700 12px/1.4 Arial, sans-serif; letter-spacing: .04em; text-transform: uppercase; }
-    dd { margin: 3px 0 0; }
-    ul { margin: 4px 0 12px; padding-left: 22px; }
-    .report-items { display: grid; gap: 10px; }
-    .report-item { padding: 12px 14px; border-left: 3px solid var(--line); background: #f7f9f9; }
-    .report-item dl .report-field:last-child { margin-bottom: 0; }
-    .unavailable { margin: 0; color: var(--muted); font-style: italic; }
-    @media (max-width: 700px) { main { margin: 0; padding: 28px 22px; } h1 { font-size: 28px; } }
-    @media print { body { background: #fff; } main { max-width: none; margin: 0; padding: 0; box-shadow: none; } }
-  </style>
-</head>
-<body>
-  <main>
-    <header>
-      <p class="eyebrow">Litmus · Startup Validation</p>
-      <h1>Startup Validation Report</h1>
-      <p class="idea">""" + title + "</p>\n    </header>\n    """ + "\n    ".join(sections) + """
-  </main>
-</body>
-</html>"""
+SECTIONS = (
+    ("1. Startup Idea / Executive Summary", "executive"),
+    ("2. Market Analysis", "market"),
+    ("3. Competitor Analysis", "competitors"),
+    ("4. SWOT & Risks", "swot"),
+    ("5. MVP Recommendations", "mvp"),
+    ("6. Go-To-Market Strategy", "gtm"),
+    ("7. Validation Score & Verdict", "score"),
+    ("8. Roadmap", "roadmap"),
+    ("9. Sources", "sources"),
+)
 
 
 def report_filename(idea):
-    """Return a filesystem-safe report filename derived from the idea."""
-    slug = re.sub(r"[^a-z0-9]+", "-", str(idea).lower()).strip("-")[:48]
-    return (slug or "startup-validation") + "-report.html"
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", str(idea)).strip("-").lower()[:48]
+    return "litmus-validation-{}.pdf".format(slug or "report")
+
+
+def _text(value):
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    return ""
+
+
+def _paragraph(text, style):
+    safe = escape(_text(text)).replace("\n", "<br/>")
+    return Paragraph(safe or "Not available in this validation run.", style)
+
+
+def _add_value(story, label, value, styles):
+    if value is None or value == "" or value == []:
+        return
+    story.append(Paragraph(escape(label), styles["Heading3"]))
+    if isinstance(value, dict):
+        for key, child in value.items():
+            _add_value(story, key.replace("_", " ").title(), child, styles)
+    elif isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                lines = [
+                    "<b>{}</b>: {}".format(
+                        escape(str(key).replace("_", " ").title()),
+                        escape(_text(child)),
+                    )
+                    for key, child in item.items()
+                    if not isinstance(child, (dict, list)) and child not in ("", None)
+                ]
+                nested = [
+                    child for child in item.values() if isinstance(child, (dict, list))
+                ]
+                story.append(Paragraph(" • ".join(lines), styles["BodyText"]))
+                for child in nested:
+                    _add_value(story, "Details", child, styles)
+            else:
+                story.append(Paragraph("• " + escape(_text(item)), styles["BodyText"]))
+            story.append(Spacer(1, 4))
+    else:
+        story.append(_paragraph(value, styles["BodyText"]))
+
+
+def build_validation_report(data):
+    """Return a PDF byte string for a completed or partial validation."""
+    output = BytesIO()
+    doc = SimpleDocTemplate(
+        output,
+        pagesize=letter,
+        rightMargin=0.68 * inch,
+        leftMargin=0.68 * inch,
+        topMargin=0.65 * inch,
+        bottomMargin=0.65 * inch,
+        title="Litmus Startup Validation Report",
+        author="Litmus",
+        pageCompression=0,
+    )
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(
+        name="ReportTitle",
+        parent=styles["Title"],
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#203458"),
+        spaceAfter=10,
+    ))
+    styles["Heading2"].textColor = colors.HexColor("#2f5bea")
+    styles["Heading3"].textColor = colors.HexColor("#35465e")
+
+    story = [
+        Paragraph("Litmus Startup Validation Report", styles["ReportTitle"]),
+        Paragraph("Evidence-informed analysis. AI-generated recommendations require independent validation.", styles["Italic"]),
+        Spacer(1, 12),
+        HRFlowable(width="100%", color=colors.HexColor("#dce3ee")),
+    ]
+
+    market = data.get("market") or {}
+    competitors = data.get("competitors") or {}
+    swot = data.get("swot") or {}
+    mvp = data.get("mvp") or {}
+    gtm = data.get("gtm") or {}
+    sources = data.get("results") or []
+
+    for title, key in SECTIONS:
+        story.append(Paragraph(escape(title), styles["Heading2"]))
+        story.append(Spacer(1, 4))
+        if key == "executive":
+            _add_value(story, "Startup idea", data.get("idea", ""), styles)
+            _add_value(story, "Summary", data.get("summary"), styles)
+            _add_value(story, "Run status", data.get("errors") or "All available stages completed.", styles)
+        elif key == "market":
+            _add_value(story, "Market analysis", market, styles)
+        elif key == "competitors":
+            _add_value(story, "Competitive landscape", competitors, styles)
+        elif key == "swot":
+            _add_value(story, "SWOT and execution risks", swot, styles)
+        elif key == "mvp":
+            _add_value(story, "MVP scope and phased build", mvp, styles)
+        elif key == "gtm":
+            _add_value(story, "Positioning, acquisition and monetization", gtm, styles)
+        elif key == "score":
+            dimensions = {
+                "Market evidence": bool(market),
+                "Competitor evidence": bool(competitors),
+                "SWOT and risk analysis": bool(swot),
+                "MVP plan": bool(mvp),
+                "GTM plan": bool(gtm),
+            }
+            score = round(100 * sum(dimensions.values()) / len(dimensions))
+            verdict = (
+                "Broad evidence coverage" if score >= 80
+                else "Partial evidence coverage" if score >= 40
+                else "Insufficient evidence coverage"
+            )
+            story.append(Paragraph(
+                "<b>Evidence coverage score: {}/100</b> — {}".format(score, verdict),
+                styles["BodyText"],
+            ))
+            story.append(Paragraph(
+                "This score measures completion of report sections, not startup viability, "
+                "investment merit, or likelihood of success.",
+                styles["Italic"],
+            ))
+            table = Table(
+                [[name, "Available" if present else "Unavailable"] for name, present in dimensions.items()],
+                colWidths=[3.8 * inch, 2.0 * inch],
+            )
+            table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f4f6fa")),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#dce3ee")),
+                ("PADDING", (0, 0), (-1, -1), 6),
+            ]))
+            story.append(table)
+        elif key == "roadmap":
+            phases = mvp.get("build_phases") or []
+            if phases:
+                _add_value(story, "Build phases", phases, styles)
+            _add_value(story, "First 90 days", gtm.get("first_90_days"), styles)
+        elif key == "sources":
+            if sources:
+                rows = [["#", "Source", "URL", "Search category"]]
+                for index, source in enumerate(sources, 1):
+                    rows.append([
+                        str(index),
+                        _text(source.get("title", "Untitled source"))[:120],
+                        _text(source.get("url", ""))[:160],
+                        _text(source.get("category", "")),
+                    ])
+                table = Table(rows, repeatRows=1, colWidths=[0.3 * inch, 2.0 * inch, 3.2 * inch, 1.3 * inch])
+                table.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8eef9")),
+                    ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#dce3ee")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+                    ("WORDWRAP", (0, 0), (-1, -1), "CJK"),
+                    ("PADDING", (0, 0), (-1, -1), 5),
+                ]))
+                story.append(table)
+            else:
+                story.append(Paragraph("No live sources were available for this run.", styles["BodyText"]))
+        story.append(Spacer(1, 10))
+
+    if data.get("errors"):
+        story.append(PageBreak())
+        story.append(Paragraph("Pipeline Errors and Limitations", styles["Heading2"]))
+        _add_value(story, "Unavailable stages", data["errors"], styles)
+    doc.build(story)
+    return output.getvalue()

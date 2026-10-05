@@ -5,8 +5,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
     from response_validation import parse_json_response
+    from gemini_retry import invoke_with_retry
 except ImportError:
     from agents.response_validation import parse_json_response
+    from agents.gemini_retry import invoke_with_retry
 
 load_dotenv()
 
@@ -19,7 +21,11 @@ MODEL = "gemini-3.7-flash"
 # had degraded. 3.7-flash at 512 gave 4.3s and kept it. Measured 6 Sep.
 THINKING_BUDGET = 512
 
-llm = ChatGoogleGenerativeAI(model=MODEL, thinking_budget=THINKING_BUDGET)
+# max_retries=0 turns off the client's own hidden retries (default 6, which
+# include 429). Retrying is handled by gemini_retry.invoke_with_retry.
+llm = ChatGoogleGenerativeAI(
+    model=MODEL, thinking_budget=THINKING_BUDGET, max_retries=0
+)
 
 
 def condense(results, limit=12):
@@ -121,7 +127,7 @@ def analyse_market(idea, results):
     evidence = condense(results)
     prompt = build_prompt(idea, evidence)
     try:
-        reply = llm.invoke(prompt)
+        reply = invoke_with_retry(llm, prompt, "Market agent")
         response_text = getattr(reply, "text", None)
     except Exception as error:
         print("Market agent failed:", error)

@@ -5,15 +5,21 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
     from response_validation import parse_json_response
+    from gemini_retry import invoke_with_retry
 except ImportError:
     from agents.response_validation import parse_json_response
+    from agents.gemini_retry import invoke_with_retry
 
 load_dotenv()
 
 MODEL = "gemini-3.7-flash"
 THINKING_BUDGET = 512
 
-llm = ChatGoogleGenerativeAI(model=MODEL, thinking_budget=THINKING_BUDGET)
+# max_retries=0 turns off the client's own hidden retries (default 6, which
+# include 429). Retrying is handled by gemini_retry.invoke_with_retry.
+llm = ChatGoogleGenerativeAI(
+    model=MODEL, thinking_budget=THINKING_BUDGET, max_retries=0
+)
 
 
 def parse_json(text):
@@ -27,16 +33,26 @@ SHAPE = """{
   "must_have_features": [
     {"feature": "", "why_important": ""}
   ],
+  "should_have_features": [
+    {"feature": "", "why_important": ""}
+  ],
   "nice_to_have_features": [
     {"feature": "", "why_later": ""}
-  ]
+  ],
+  "build_phases": [
+    {"phase": "", "features": [""], "exit_criteria": ""}
+  ],
+  "prioritization_rationale": ""
 }"""
 
 RESPONSE_SCHEMA = {
     "target_audience": str,
     "product_summary": str,
     "must_have_features": [{"feature": str, "why_important": str}],
+    "should_have_features": [{"feature": str, "why_important": str}],
     "nice_to_have_features": [{"feature": str, "why_later": str}],
+    "build_phases": [{"phase": str, "features": [str], "exit_criteria": str}],
+    "prioritization_rationale": str,
 }
 
 RULES = """RULES:
@@ -54,12 +70,17 @@ RULES = """RULES:
    validated. Do not repeat must-have features in that list.
 6. Avoid expanding the first version with payments, integrations, or other
    complex capabilities unless the supplied context makes them essential.
-7. Return ONLY valid JSON in exactly the requested shape, with no commentary
+7. Group recommendations into must-have, should-have, and nice-to-have;
+   prioritize explicit competitor gaps and the narrowest useful workflow,
+   while considering the effort implied by the idea. Explain prioritization
+   and order the work into phases with measurable learning/exit criteria.
+8. Return ONLY valid JSON in exactly the requested shape, with no commentary
    before or after it."""
 
 
-def build_prompt(idea, market, competitors):
+def build_prompt(idea, market, competitors, swot=None):
     """Assemble an MVP recommendation prompt from existing analysis results."""
+    risk_context = json.dumps(swot, ensure_ascii=True) if swot else "Not supplied."
     return (
         "You are a pragmatic product strategist helping a founder define the "
         "smallest useful first version of a startup.\n\n"
@@ -68,21 +89,24 @@ def build_prompt(idea, market, competitors):
         + json.dumps(market, ensure_ascii=True) + "\n\n"
         "COMPETITOR ANALYSIS, INCLUDING MARKET GAPS:\n"
         + json.dumps(competitors, ensure_ascii=True) + "\n\n"
+        "SWOT AND RISKS:\n" + risk_context + "\n\n"
         "Return ONLY valid JSON in exactly this shape:\n\n"
         + SHAPE + "\n\n" + RULES
     )
 
 
-def recommend_mvp(idea, market, competitors):
+def recommend_mvp(idea, market, competitors, swot=None):
     """Recommend a minimal first version, or return None on model/JSON failure."""
-    prompt = build_prompt(idea, market, competitors)
+    prompt = build_prompt(idea, market, competitors, swot)
     try:
-        reply = llm.invoke(prompt)
+        reply = invoke_with_retry(llm, prompt, "MVP agent")
         response_text = getattr(reply, "text", None)
     except Exception as error:
         print("MVP recommendation agent failed:", error)
         return None
     result = parse_json(response_text)
-    if result is None or not result["must_have_features"]:
+    if result is None or not result["must_have_features"] or not result["build_phases"]:
+        return None
+    if any(not phase["features"] or not phase["exit_criteria"].strip() for phase in result["build_phases"]):
         return None
     return result

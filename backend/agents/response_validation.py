@@ -1,38 +1,37 @@
+"""Strict JSON shape checks shared by the analysis agents."""
+
 import json
-import re
 
 
-def _matches_schema(value, schema):
-    if schema is str:
-        return isinstance(value, str) and bool(value.strip())
-    if schema is bool:
-        return type(value) is bool
-    if isinstance(schema, dict):
-        return isinstance(value, dict) and all(
-            key in value and _matches_schema(value[key], field_schema)
-            for key, field_schema in schema.items()
+def _matches(value, shape):
+    if isinstance(shape, type):
+        return isinstance(value, shape) and (
+            shape is not int or not isinstance(value, bool)
         )
-    if isinstance(schema, list):
-        if not isinstance(value, list):
-            return False
-        return not schema or all(_matches_schema(item, schema[0]) for item in value)
-    return isinstance(value, schema)
+    if isinstance(shape, list):
+        return isinstance(value, list) and (
+            not shape or all(_matches(item, shape[0]) for item in value)
+        )
+    if isinstance(shape, dict):
+        return isinstance(value, dict) and all(
+            key in value and _matches(value[key], expected)
+            for key, expected in shape.items()
+        )
+    return False
 
 
-def parse_json_response(text, schema):
-    """Parse JSON and reject replies that do not match the required structure."""
+def parse_json_response(text, response_schema):
+    """Parse JSON (including fenced JSON) and reject malformed or wrong-shaped data."""
     if not isinstance(text, str):
         return None
-
     text = text.strip()
     if text.startswith("```"):
-        match = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, re.IGNORECASE | re.DOTALL)
-        if match is None:
+        lines = text.splitlines()
+        if len(lines) < 3 or not lines[-1].strip().startswith("```"):
             return None
-        text = match.group(1).strip()
-
+        text = "\n".join(lines[1:-1]).strip()
     try:
-        result = json.loads(text)
-    except (json.JSONDecodeError, TypeError, ValueError):
+        value = json.loads(text)
+    except (TypeError, ValueError):
         return None
-    return result if _matches_schema(result, schema) else None
+    return value if _matches(value, response_schema) else None
