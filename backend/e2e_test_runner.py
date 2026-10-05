@@ -389,7 +389,24 @@ def _run_response_validation_checks():
     searchless = dict(fixture_set["search"])
     searchless["results"] = []
     pipeline_module = importlib.import_module("agents.pipeline")
-    with patch.object(pipeline_module, "search_idea", return_value=searchless):
+    with (
+        patch.object(pipeline_module, "search_idea", return_value=searchless),
+        patch.object(
+            importlib.import_module("agents.swot_agent"),
+            "invoke_with_json_repair",
+            side_effect=AssertionError("SWOT should not call Gemini without research"),
+        ),
+        patch.object(
+            importlib.import_module("agents.mvp_agent"),
+            "invoke_with_json_repair",
+            side_effect=AssertionError("MVP should not call Gemini without research"),
+        ),
+        patch.object(
+            importlib.import_module("agents.gtm_agent"),
+            "invoke_with_json_repair",
+            side_effect=AssertionError("GTM should not call Gemini without research"),
+        ),
+    ):
         response = pipeline_module.validate("sample startup")
     for name in ("market", "competitors", "swot", "mvp", "gtm"):
         if not response.get(name) or not response[name].get("analysis_mode"):
@@ -712,35 +729,39 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
             return SimpleNamespace(text=market_behaviour)
         return stub
 
+    search_with_competitor = dict(fixtures["search"])
+    search_with_competitor["results"] = [
+        {**item, "category": "Competitors"}
+        for item in fixtures["search"]["results"]
+    ]
     with (
         patch.object(gemini_retry.time, "sleep"),
-        patch.object(pipeline_module, "search_idea", return_value=fixtures["search"]),
+        patch.object(pipeline_module, "search_idea", return_value=search_with_competitor),
         patch.object(market_module.llm, "invoke", side_effect=make_llm_stub(unavailable)),
-        patch.object(competitor_module.llm, "invoke", side_effect=make_llm_stub(unavailable)),
+        patch.object(competitor_module.llm, "invoke", side_effect=unavailable),
         patch.object(pipeline_module, "analyse_swot", return_value=fixtures["swot"]) as swot_call,
         patch.object(pipeline_module, "recommend_mvp", return_value=fixtures["mvp"]) as mvp_call,
         patch.object(pipeline_module, "develop_gtm_strategy", return_value=fixtures["gtm"]) as gtm_call,
     ):
         result = app_module.run_pipeline("retry test idea")
     errors = result.get("errors", [])
-    if not result.get("market"):
-        failures.append("pipeline: market fallback was not returned after provider failure")
-    elif result["market"].get("analysis_mode") != "analysis_unavailable":
-        failures.append("pipeline: unavailable market analysis was not labelled")
-    if result.get("competitors") != fixtures["competitors"]:
-        failures.append("pipeline: competitor fallback/result was not returned")
+    if not result.get("market") or result["market"].get("analysis_mode") != "evidence_summary":
+        failures.append("pipeline: available market-search leads were not returned after Gemini failure")
+    if not result.get("competitors") or result["competitors"].get("analysis_mode") != "evidence_summary":
+        failures.append("pipeline: available competitor-search leads were not returned after Gemini failure")
     if result.get("swot") is None or result.get("mvp") is None or result.get("gtm") is None:
         failures.append("pipeline: downstream agents did not use available competitor context")
-    if result.get("market") is None and result.get("competitors"):
-        if swot_call.call_args.args[1] != {} or mvp_call.call_args.args[1] != {}:
-            failures.append("pipeline: unavailable market context was not represented as empty")
-        if gtm_call.call_args.args[1] != {}:
-            failures.append("pipeline: unavailable market context was not represented in GTM input")
+    if (
+        swot_call.call_args.args[1].get("analysis_mode") != "evidence_summary"
+        or mvp_call.call_args.args[1].get("analysis_mode") != "evidence_summary"
+        or gtm_call.call_args.args[1].get("analysis_mode") != "evidence_summary"
+    ):
+        failures.append("pipeline: downstream agents did not receive the evidence-only market summary")
 
     swot_module = importlib.import_module("agents.swot_agent")
     mvp_module = importlib.import_module("agents.mvp_agent")
     with (
-        patch.object(pipeline_module, "search_idea", return_value=fixtures["search"]),
+        patch.object(pipeline_module, "search_idea", return_value=search_with_competitor),
         patch.object(pipeline_module, "analyse_market", return_value=fixtures["market"]),
         patch.object(pipeline_module, "analyse_competitors", return_value=fixtures["competitors"]),
         patch.object(swot_module, "invoke_with_json_repair", side_effect=RuntimeError("Gemini unavailable")),
@@ -779,8 +800,8 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
         patch.object(competitor_module.llm, "invoke", side_effect=make_llm_stub("not json")),
     ):
         result = app_module.run_pipeline("retry test idea")
-    if not result.get("market") or result["market"].get("analysis_mode") != "analysis_unavailable":
-        failures.append("pipeline: invalid market JSON did not return the labelled fallback")
+    if not result.get("market") or result["market"].get("analysis_mode") != "evidence_summary":
+        failures.append("pipeline: invalid market JSON did not return the labelled evidence summary")
 
     # 7. /advisor: success and labelled fallback on provider/output failure.
     good = {"answer": "Focus on the buyer segment.", "has_sufficient_context": True, "missing_context": [], "citations": []}
@@ -809,11 +830,16 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
             failures.append("advisor: source labels or untrusted citation filtering failed")
         if "prior detail" not in invoke.call_args.args[0]:
             failures.append("advisor: conversation history missing from the prompt")
-    with patch.object(gemini_retry.time, "sleep"), patch.object(advisor_module.llm, "invoke", side_effect=unavailable):
+    with (
+        patch.object(advisor_module, "invoke_with_json_repair", side_effect=unavailable),
+        patch.object(advisor_module, "take_failure", return_value="GoogleRateLimitError: 429 RESOURCE_EXHAUSTED"),
+    ):
         answer = app_module.advise(request)
         if answer.get("analysis_mode") != "advisor_unavailable" or answer.get("citations") != []:
             failures.append("advisor: provider failure did not return a labelled uncited response")
-    with patch.object(advisor_module.llm, "invoke", return_value=SimpleNamespace(text="not json")):
+        if "RESOURCE_EXHAUSTED" not in answer.get("analysis_note", ""):
+            failures.append("advisor: quota failure detail was not safely disclosed")
+    with patch.object(advisor_module, "invoke_with_json_repair", return_value=None):
         answer = app_module.advise(request)
         if answer.get("analysis_mode") != "advisor_unavailable" or answer.get("citations") != []:
             failures.append("advisor: invalid reply did not return a labelled uncited response")
@@ -829,7 +855,10 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
         response = client.post("/advisor", json=body)
         if response.status_code != 200 or any(response.json().get(key) != value for key, value in good.items()):
             failures.append("HTTP /advisor with null context: {} {}".format(response.status_code, response.text[:100]))
-    with patch.object(gemini_retry.time, "sleep"), patch.object(advisor_module.llm, "invoke", side_effect=unavailable):
+    with (
+        patch.object(advisor_module, "invoke_with_json_repair", side_effect=unavailable),
+        patch.object(advisor_module, "take_failure", return_value="GoogleRateLimitError: 429 RESOURCE_EXHAUSTED"),
+    ):
         response = client.post("/advisor", json=body)
         if response.status_code != 200 or response.json().get("analysis_mode") != "advisor_unavailable":
             failures.append("HTTP /advisor fallback case: {} {}".format(response.status_code, response.text[:100]))

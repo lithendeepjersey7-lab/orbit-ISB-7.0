@@ -325,8 +325,35 @@ function buildMarket(market) {
     box.appendChild(withEstimateMarks(market.evidence_gaps));
   }
 
+  appendResearchLeads(box, "Live market search leads (not verified findings)", market.source_findings);
   addAskButton(box, "Market analysis");
   return box;
+}
+
+function appendResearchLeads(box, headingText, leads) {
+  if (!Array.isArray(leads) || !leads.length) return;
+  const heading = document.createElement("h3");
+  heading.textContent = headingText;
+  box.appendChild(heading);
+  const list = document.createElement("ul");
+  for (const lead of leads) {
+    const item = document.createElement("li");
+    const link = document.createElement("a");
+    link.textContent = lead.title || "Search result";
+    link.href = lead.url || "#";
+    if (lead.url) {
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    }
+    item.appendChild(link);
+    if (lead.category || lead.snippet) {
+      const detail = document.createElement("p");
+      detail.textContent = [lead.category, lead.snippet].filter(Boolean).join(" — ");
+      item.appendChild(detail);
+    }
+    list.appendChild(item);
+  }
+  box.appendChild(list);
 }
 
 function buildCompetitors(data) {
@@ -391,6 +418,7 @@ function buildCompetitors(data) {
     box.appendChild(withEstimateMarks(data.market_gaps));
   }
 
+  appendResearchLeads(box, "Competitor search leads (not confirmed competitors)", data.research_leads);
   addAskButton(box, "Competitor analysis");
   return box;
 }

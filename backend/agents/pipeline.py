@@ -67,6 +67,12 @@ def _agent_failure(label: str) -> str:
     return label + " returned no usable JSON"
 
 
+def _fallback_notice(label: str, fallback_detail: str) -> str:
+    provider_failure = take_failure()
+    detail = provider_failure or fallback_detail
+    return label + ": " + detail
+
+
 def search_node(state: State) -> dict:
     """Milestone 1's agent, unchanged, as step one."""
     try:
@@ -82,10 +88,13 @@ def market_node(state: State) -> dict:
     )
     if result is None:
         return {"market": None, "errors": [_agent_failure("Market agent")]}
-    if result.get("analysis_mode") == "analysis_unavailable":
+    if result.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}:
         return {
             "market": result,
-            "errors": ["Market agent has no source-grounded analysis for this run"],
+            "errors": [_fallback_notice(
+                "Market agent returned search leads only",
+                "no source-grounded synthesis was available",
+            )],
         }
     return {"market": result}
 
@@ -97,10 +106,13 @@ def competitor_node(state: State) -> dict:
     )
     if result is None:
         return {"competitors": None, "errors": [_agent_failure("Competitor agent")]}
-    if result.get("analysis_mode") == "analysis_unavailable":
+    if result.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}:
         return {
             "competitors": result,
-            "errors": ["Competitor agent has no source-grounded analysis for this run"],
+            "errors": [_fallback_notice(
+                "Competitor agent returned search leads only",
+                "competitors were not independently verified",
+            )],
         }
     return {"competitors": result}
 
@@ -117,7 +129,10 @@ def swot_node(state: State) -> dict:
     if result.get("analysis_mode") == "conservative_fallback":
         return {
             "swot": result,
-            "errors": ["SWOT agent used a conservative fallback because it could not produce a reliable analysis"],
+            "errors": [_fallback_notice(
+                "SWOT agent used a conservative fallback",
+                "it could not produce a reliable analysis",
+            )],
         }
     return {"swot": result}
 
@@ -135,7 +150,10 @@ def mvp_node(state: State) -> dict:
     if result.get("analysis_mode") == "conservative_fallback":
         return {
             "mvp": result,
-            "errors": ["MVP agent used a conservative fallback because it could not produce a reliable recommendation"],
+            "errors": [_fallback_notice(
+                "MVP agent used a conservative fallback",
+                "it could not produce a reliable recommendation",
+            )],
         }
     return {"mvp": result}
 
@@ -155,7 +173,10 @@ def gtm_node(state: State) -> dict:
     if result.get("analysis_mode") == "conservative_fallback":
         return {
             "gtm": result,
-            "errors": ["GTM agent used a conservative fallback because it could not produce a reliable strategy"],
+            "errors": [_fallback_notice(
+                "GTM agent used a conservative fallback",
+                "it could not produce a reliable strategy",
+            )],
         }
     return {"gtm": result}
 

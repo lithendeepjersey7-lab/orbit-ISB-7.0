@@ -381,8 +381,9 @@ context is available. SWOT and MVP still run when both research stages fail;
 their clearly labelled fallback drafts use only the idea and mark the missing
 evidence instead of skipping these important sections.
 
-Market and competitor stages label unavailable source evidence and never invent
-companies, segments, or market claims. SWOT, MVP, and GTM return conservative,
+Market and competitor stages label unavailable synthesis and preserve relevant
+Tavily titles, URLs and snippets as reviewable leads; these are not verified
+findings, competitors, segments, or market claims. SWOT, MVP, and GTM return conservative,
 context-limited drafts when Gemini fails or produces unusable output. These
 responses include `analysis_mode` and `analysis_note`, and the pipeline surfaces
 a warning; they are not represented as model-generated analysis. The advisor
