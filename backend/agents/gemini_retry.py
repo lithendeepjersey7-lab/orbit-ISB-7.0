@@ -49,6 +49,16 @@ def is_transient(error):
     return "503" in text and "UNAVAILABLE" in text.upper()
 
 
+def is_model_quota_limited(error):
+    """Detect Gemini 429 RESOURCE_EXHAUSTED without retrying that same model."""
+    text = str(error).upper()
+    return "RESOURCE_EXHAUSTED" in text and (
+        getattr(error, "code", None) == 429
+        or getattr(error, "status_code", None) == 429
+        or "429" in text
+    )
+
+
 def describe_error(error):
     """One short, secret-free line describing an exception for logs and the API."""
     text = " ".join(str(error).split())
@@ -112,7 +122,7 @@ def invoke_with_retry(
         return _invoke_model(llm, prompt, agent_name, max_attempts)
     except Exception as primary_error:
         last_primary_error = primary_error
-        if not is_transient(primary_error):
+        if not is_transient(primary_error) and not is_model_quota_limited(primary_error):
             _local.failure = "Gemini failed (%s)" % describe_error(primary_error)
             raise
 
@@ -125,10 +135,8 @@ def invoke_with_retry(
         )
         raise last_primary_error
 
-    print(
-        "%s: primary model overloaded; retrying with %s"
-        % (agent_name, FALLBACK_MODEL)
-    )
+    reason = "quota/rate limited" if is_model_quota_limited(last_primary_error) else "overloaded"
+    print("%s: primary model %s; trying %s once" % (agent_name, reason, FALLBACK_MODEL))
     try:
         return _invoke_model(
             fallback,
