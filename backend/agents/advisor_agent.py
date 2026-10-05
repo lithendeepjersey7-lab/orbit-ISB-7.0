@@ -5,10 +5,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
     from response_validation import invoke_with_json_repair, parse_json_response
-    from gemini_retry import invoke_with_retry
+    from gemini_retry import invoke_with_retry, take_failure
 except ImportError:
     from agents.response_validation import invoke_with_json_repair, parse_json_response
-    from agents.gemini_retry import invoke_with_retry
+    from agents.gemini_retry import invoke_with_retry, take_failure
 
 load_dotenv()
 
@@ -114,4 +114,7 @@ def answer_follow_up(question, idea, market, competitors, swot, mvp, gtm, histor
         ],
         "citations": [],
         "analysis_mode": "advisor_unavailable",
+        "analysis_note": take_failure() or (
+            "No reliable advisor response could be generated from the available context."
+        ),
     }

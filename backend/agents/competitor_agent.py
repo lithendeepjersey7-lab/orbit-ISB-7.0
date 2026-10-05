@@ -113,20 +113,39 @@ def build_prompt(idea, evidence):
     )
 
 
-def _fallback_analysis():
+def _fallback_analysis(results):
+    leads = [
+        {
+            "title": str(item.get("title") or "Untitled source")[:160],
+            "url": str(item.get("url") or ""),
+            "snippet": str(item.get("snippet") or "")[:300],
+        }
+        for item in results
+        if isinstance(item, dict)
+        and "competitor" in str(item.get("category", "")).lower()
+        and (item.get("title") or item.get("snippet"))
+    ][:8]
+    summary = (
+        "Gemini synthesis is unavailable. These are competitor-search sources "
+        "to review, not confirmed competitors."
+        if leads
+        else "A source-grounded competitor analysis is unavailable for this validation run."
+    )
     return {
-        "landscape_summary": "A source-grounded competitor analysis is unavailable for this validation run.",
+        "landscape_summary": summary,
         "competitors": [],
+        "research_leads": leads,
         "market_gaps": (
             "No competitor gap was validated from this run. Identify direct and "
             "indirect alternatives and validate unmet needs before claiming "
             "differentiation; this result does not establish that competitors "
             "or market gaps are absent."
         ),
-        "analysis_mode": "analysis_unavailable",
+        "analysis_mode": "evidence_summary" if leads else "analysis_unavailable",
         "analysis_note": (
-            "The competitor analyst could not produce a source-grounded result. "
-            "No companies or competitor claims have been invented."
+            "Search-result titles and snippets are provided as leads only. "
+            "Review the linked sources to verify products, customer segments, "
+            "and competitive positioning; no competitor claims are inferred."
         ),
     }
 
@@ -138,7 +157,7 @@ def analyse_competitors(idea, results):
     model fails or its output cannot be validated.
     """
     if not results:
-        return _fallback_analysis()
+        return _fallback_analysis([])
     evidence = condense(results)
     prompt = build_prompt(idea, evidence)
     try:
@@ -147,11 +166,11 @@ def analyse_competitors(idea, results):
         )
     except Exception as error:
         print("Competitor agent failed:", error)
-        return _fallback_analysis()
+        return _fallback_analysis(results)
     if result is None or len(result["competitors"]) > 6:
-        return _fallback_analysis()
+        return _fallback_analysis(results)
     if any(competitor["type"] not in {"direct", "indirect"} for competitor in result["competitors"]):
-        return _fallback_analysis()
+        return _fallback_analysis(results)
     return result
 
 

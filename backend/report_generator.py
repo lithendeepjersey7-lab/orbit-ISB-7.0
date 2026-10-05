@@ -119,6 +119,7 @@ def build_validation_report(data):
     mvp = data.get("mvp") or {}
     gtm = data.get("gtm") or {}
     sources = data.get("results") or []
+    unavailable_modes = {"analysis_unavailable", "evidence_summary", "conservative_fallback", "advisor_unavailable"}
 
     for title, key in SECTIONS:
         story.append(Paragraph(escape(title), styles["Heading2"]))
@@ -139,25 +140,25 @@ def build_validation_report(data):
             _add_value(story, "Positioning, acquisition and monetization", gtm, styles)
         elif key == "score":
             dimensions = {
-                "Market evidence": bool(market),
-                "Competitor evidence": bool(competitors),
-                "SWOT and risk analysis": bool(swot),
-                "MVP plan": bool(mvp),
-                "GTM plan": bool(gtm),
+                "Market synthesis": bool(market) and market.get("analysis_mode") not in unavailable_modes,
+                "Competitor verification": bool(competitors) and competitors.get("analysis_mode") not in unavailable_modes,
+                "SWOT analysis": bool(swot) and swot.get("analysis_mode") not in unavailable_modes,
+                "MVP recommendation": bool(mvp) and mvp.get("analysis_mode") not in unavailable_modes,
+                "GTM strategy": bool(gtm) and gtm.get("analysis_mode") not in unavailable_modes,
             }
             score = round(100 * sum(dimensions.values()) / len(dimensions))
             verdict = (
-                "Broad evidence coverage" if score >= 80
-                else "Partial evidence coverage" if score >= 40
-                else "Insufficient evidence coverage"
+                "All report analyses completed" if score == 100
+                else "Partial AI analysis; consult section limitations" if score >= 40
+                else "AI analyses unavailable; review source leads and fallback plans"
             )
             story.append(Paragraph(
                 "<b>Evidence coverage score: {}/100</b> — {}".format(score, verdict),
                 styles["BodyText"],
             ))
             story.append(Paragraph(
-                "This score measures completion of report sections, not startup viability, "
-                "investment merit, or likelihood of success.",
+                "This score counts completed model-generated analyses only. Search leads and "
+                "conservative fallback drafts are excluded; it is not a startup viability score.",
                 styles["Italic"],
             ))
             table = Table(

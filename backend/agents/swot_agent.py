@@ -171,8 +171,8 @@ def analyse_swot(idea, market, competitors):
     something that was not valid JSON. The caller decides what to do about it.
     """
     if (
-        market.get("analysis_mode") == "analysis_unavailable"
-        and competitors.get("analysis_mode") == "analysis_unavailable"
+        market.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}
+        and competitors.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}
     ):
         return _fallback_analysis(idea, market, competitors)
     prompt = build_prompt(idea, market, competitors)

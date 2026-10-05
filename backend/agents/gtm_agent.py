@@ -193,8 +193,8 @@ def _fallback_strategy(idea, market):
 def develop_gtm_strategy(idea, market, competitors, swot=None):
     """Create a structured GTM strategy, or return None on model/JSON failure."""
     if (
-        market.get("analysis_mode") == "analysis_unavailable"
-        and competitors.get("analysis_mode") == "analysis_unavailable"
+        market.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}
+        and competitors.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}
         and (not swot or swot.get("analysis_mode") == "conservative_fallback")
     ):
         return _fallback_strategy(idea, market)

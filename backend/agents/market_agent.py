@@ -118,22 +118,45 @@ def build_prompt(idea, evidence):
     )
 
 
-def _fallback_analysis():
+def _fallback_analysis(results):
+    evidence = [
+        {
+            "title": str(item.get("title") or "Untitled source")[:160],
+            "url": str(item.get("url") or ""),
+            "category": str(item.get("category") or ""),
+            "snippet": str(item.get("snippet") or "")[:300],
+        }
+        for item in results[:8]
+        if isinstance(item, dict) and (item.get("title") or item.get("snippet"))
+    ]
+    market_sources = [
+        item for item in evidence
+        if "market" in item["category"].lower() or "demand" in item["category"].lower()
+    ]
+    if not market_sources:
+        market_sources = evidence[:5]
+    summary = (
+        "Gemini synthesis is unavailable. The following are search-result leads "
+        "only, not verified market findings."
+        if market_sources
+        else "No source-grounded market analysis or usable search leads are available."
+    )
     return {
-        "market_summary": "A source-grounded market summary is unavailable for this validation run.",
+        "market_summary": summary,
         "market_size": "Not assessed: no reliable market-size estimate can be produced without verifiable sources.",
         "growth_and_demand": "Not assessed: demand and growth claims require current, relevant evidence.",
         "segments": [],
+        "source_findings": market_sources,
         "evidence_gaps": (
             "Customer segments, market size, growth, and willingness to pay could "
             "not be validated from this run. Verify these claims against current "
             "sources and customer research before making decisions."
         ),
-        "analysis_mode": "analysis_unavailable",
+        "analysis_mode": "evidence_summary" if market_sources else "analysis_unavailable",
         "analysis_note": (
-            "The market analyst could not produce a reliable, source-grounded "
-            "result. This does not mean demand is absent; no market facts have "
-            "been invented."
+            "Gemini could not synthesize the results. Source leads are shown "
+            "verbatim for manual review; no market-size, trend, or customer "
+            "claim has been inferred from them."
         ),
     }
 
@@ -145,7 +168,7 @@ def analyse_market(idea, results):
     model fails or its output cannot be validated.
     """
     if not results:
-        return _fallback_analysis()
+        return _fallback_analysis([])
     evidence = condense(results)
     prompt = build_prompt(idea, evidence)
     try:
@@ -154,11 +177,11 @@ def analyse_market(idea, results):
         )
     except Exception as error:
         print("Market agent failed:", error)
-        return _fallback_analysis()
+        return _fallback_analysis(results)
     if result is None or len(result["segments"]) > 3:
-        return _fallback_analysis()
+        return _fallback_analysis(results)
     if any(segment["side"] not in {"buyer", "supply", "both", "n/a"} for segment in result["segments"]):
-        return _fallback_analysis()
+        return _fallback_analysis(results)
     return result
 
 
