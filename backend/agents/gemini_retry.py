@@ -26,8 +26,8 @@ import re
 import threading
 import time
 
-MAX_ATTEMPTS = 3
-BASE_DELAY_SECONDS = 4.0  # waits ~4s, then ~8s (plus up to 1s jitter)
+MAX_ATTEMPTS = 4
+BASE_DELAY_SECONDS = 4.0  # waits ~4s, 8s, then 16s (plus up to 1s jitter)
 
 # The last agent-call failure seen by THIS thread. The pipeline runs each node
 # in a worker thread and reads this straight after the agent returns, in the
