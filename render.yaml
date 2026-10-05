@@ -31,3 +31,5 @@ services:
       # from this file" - which is how a secret is declared without committing it.
       - key: TAVILY_API_KEY
         sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
