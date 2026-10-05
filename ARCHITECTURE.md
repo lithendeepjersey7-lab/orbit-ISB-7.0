@@ -346,9 +346,11 @@ the margin mattered. LangGraph also does not raise from an `async def` route,
 and a LangGraph node is an ordinary function that can be called and printed
 inside, whereas a CrewAI agent's behaviour is tuned by rewording its backstory.
 
-**Gemini's free tier, and `gemini-3.7-flash` specifically.** No credit card is
-required. `gemini-2.5-flash` is closed to new accounts, so the model list was
-queried from the API rather than copied from a tutorial.
+**Gemini model identifiers are deployment-sensitive.** The app uses
+`gemini-3.7-flash` as its configured primary and falls back to `gemini-3.8-flash`
+when the primary is overloaded or model-quota limited. A live API response
+confirmed `gemini-2.5-flash` is no longer available to new users, so it is not
+used as the fallback.
 
 **A thinking budget of 512 tokens.** Uncapped, the same competitor prompt took
 140.8 seconds on one run and 59.0 on another - the model decides how long to
@@ -366,7 +368,7 @@ covered in section 7.
 `response_validation.py` enforces required JSON fields and nested types.
 Pipeline failures degrade partially and are reported. Transient Gemini 503
 503 errors receive one quick retry; if Gemini 3.7 Flash stays overloaded, the
-same prompt is sent to Gemini 2.5 Flash with one retry. A model-specific 429
+same prompt is sent to Gemini 3.8 Flash with one retry. A model-specific 429
 quota response switches models once without repeating the limited-model call.
 Project-wide quota exhaustion still requires an operator to restore quota or
 configure billing/API credentials. A malformed structured reply receives one

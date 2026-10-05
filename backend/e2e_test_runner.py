@@ -515,7 +515,7 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
         fallback_calls.append(prompt)
         return "fallback reply"
 
-    fallback_llm = SimpleNamespace(model="gemini-2.5-flash", invoke=fallback_ok)
+    fallback_llm = SimpleNamespace(model="gemini-3.8-flash", invoke=fallback_ok)
 
     with patch.object(gemini_retry.time, "sleep"):
         recovered = gemini_retry.invoke_with_retry(
@@ -579,7 +579,7 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
             failures.append("retry: persistent primary and fallback outage did not raise")
         except FakeApiError:
             failure = gemini_retry.take_failure() or ""
-            if "gemini-2.5-flash" not in failure or len(fallback_calls) != 2:
+            if "gemini-3.8-flash" not in failure or len(fallback_calls) != 2:
                 failures.append("retry: dual-model failure was not reported or bounded")
 
     # 3. 429, auth, bad-request and unknown errors are never retried.

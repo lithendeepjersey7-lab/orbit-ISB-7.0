@@ -27,7 +27,7 @@ import threading
 import time
 
 MAX_ATTEMPTS = 2
-FALLBACK_MODEL = "gemini-2.5-flash"
+FALLBACK_MODEL = "gemini-3.8-flash"
 BASE_DELAY_SECONDS = 1.5  # fail over quickly enough to preserve the request budget
 
 # The last agent-call failure seen by THIS thread. The pipeline runs each node
@@ -115,7 +115,7 @@ def invoke_with_retry(
     """Invoke Gemini with bounded retries and a stable-model overload fallback.
 
     Only 503 errors trigger retries/failover. After the primary model exhausts
-    its retry budget, supported Gemini 3.7 Flash callers try Gemini 2.5 Flash
+    its retry budget, supported Gemini 3.7 Flash callers try Gemini 3.8 Flash
     with the same prompt. Other failures are re-raised without extra calls.
     """
     _local.failure = None
