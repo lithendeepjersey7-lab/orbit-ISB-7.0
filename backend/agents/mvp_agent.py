@@ -177,6 +177,11 @@ def _fallback_recommendation(idea, market, competitors):
 
 def recommend_mvp(idea, market, competitors, swot=None):
     """Recommend a minimal first version, or return None on model/JSON failure."""
+    if (
+        market.get("analysis_mode") == "analysis_unavailable"
+        and competitors.get("analysis_mode") == "analysis_unavailable"
+    ):
+        return _fallback_recommendation(idea, market, competitors)
     prompt = build_prompt(idea, market, competitors, swot)
     try:
         result = invoke_with_json_repair(

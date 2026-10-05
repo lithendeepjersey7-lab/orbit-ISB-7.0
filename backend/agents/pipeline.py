@@ -76,20 +76,32 @@ def search_node(state: State) -> dict:
 
 
 def market_node(state: State) -> dict:
-    if not state.get("search"):
-        return {"market": None, "errors": ["Market agent skipped: no search results"]}
-    result = analyse_market(state["idea"], state["search"]["results"])
+    result = analyse_market(
+        state["idea"],
+        (state.get("search") or {}).get("results", []),
+    )
     if result is None:
         return {"market": None, "errors": [_agent_failure("Market agent")]}
+    if result.get("analysis_mode") == "analysis_unavailable":
+        return {
+            "market": result,
+            "errors": ["Market agent has no source-grounded analysis for this run"],
+        }
     return {"market": result}
 
 
 def competitor_node(state: State) -> dict:
-    if not state.get("search"):
-        return {"competitors": None, "errors": ["Competitor agent skipped: no search results"]}
-    result = analyse_competitors(state["idea"], state["search"]["results"])
+    result = analyse_competitors(
+        state["idea"],
+        (state.get("search") or {}).get("results", []),
+    )
     if result is None:
         return {"competitors": None, "errors": [_agent_failure("Competitor agent")]}
+    if result.get("analysis_mode") == "analysis_unavailable":
+        return {
+            "competitors": result,
+            "errors": ["Competitor agent has no source-grounded analysis for this run"],
+        }
     return {"competitors": result}
 
 
@@ -105,7 +117,7 @@ def swot_node(state: State) -> dict:
     if result.get("analysis_mode") == "conservative_fallback":
         return {
             "swot": result,
-            "errors": ["SWOT agent used a conservative fallback because Gemini was unavailable"],
+            "errors": ["SWOT agent used a conservative fallback because it could not produce a reliable analysis"],
         }
     return {"swot": result}
 
@@ -123,7 +135,7 @@ def mvp_node(state: State) -> dict:
     if result.get("analysis_mode") == "conservative_fallback":
         return {
             "mvp": result,
-            "errors": ["MVP agent used a conservative fallback because Gemini was unavailable"],
+            "errors": ["MVP agent used a conservative fallback because it could not produce a reliable recommendation"],
         }
     return {"mvp": result}
 
@@ -140,6 +152,11 @@ def gtm_node(state: State) -> dict:
     )
     if result is None:
         return {"gtm": None, "errors": [_agent_failure("GTM agent")]}
+    if result.get("analysis_mode") == "conservative_fallback":
+        return {
+            "gtm": result,
+            "errors": ["GTM agent used a conservative fallback because it could not produce a reliable strategy"],
+        }
     return {"gtm": result}
 
 

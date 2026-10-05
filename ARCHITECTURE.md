@@ -381,10 +381,17 @@ context is available. SWOT and MVP still run when both research stages fail;
 their clearly labelled fallback drafts use only the idea and mark the missing
 evidence instead of skipping these important sections.
 
-SWOT and MVP also return a conservative, context-limited draft when Gemini
-fails or produces unusable output. The response includes `analysis_mode` and
-`analysis_note`, and the pipeline surfaces a warning; these drafts are not
-represented as model-generated analysis and should be validated with customers.
+Market and competitor stages label unavailable source evidence and never invent
+companies, segments, or market claims. SWOT, MVP, and GTM return conservative,
+context-limited drafts when Gemini fails or produces unusable output. These
+responses include `analysis_mode` and `analysis_note`, and the pipeline surfaces
+a warning; they are not represented as model-generated analysis. The advisor
+returns an uncited insufficient-context message on provider failure rather than
+fabricating an answer or source.
+
+The results view has one report action: “Download PDF validation report.” It
+posts the current validation payload to `/report`, checks the PDF media type,
+and saves the returned bytes as a `.pdf` file.
 
 The browser carries up to four question/answer pairs into advisor follow-ups;
 there is no server-side user or session store. The advisor can use history to

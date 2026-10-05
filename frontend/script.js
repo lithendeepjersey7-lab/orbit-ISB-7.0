@@ -663,8 +663,12 @@ async function downloadReport(data, button) {
     const link = document.createElement("a");
     link.href = url;
     link.download = "litmus-validation-report.pdf";
+    document.body.appendChild(link);
     link.click();
+    link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    statusLine.textContent = "Validation PDF downloaded.";
+    statusLine.className = "";
   } catch (error) {
     statusLine.textContent = error.message || "Could not generate the PDF report.";
     statusLine.className = "error";

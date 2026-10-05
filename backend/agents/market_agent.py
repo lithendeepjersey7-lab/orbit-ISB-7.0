@@ -118,12 +118,34 @@ def build_prompt(idea, evidence):
     )
 
 
+def _fallback_analysis():
+    return {
+        "market_summary": "A source-grounded market summary is unavailable for this validation run.",
+        "market_size": "Not assessed: no reliable market-size estimate can be produced without verifiable sources.",
+        "growth_and_demand": "Not assessed: demand and growth claims require current, relevant evidence.",
+        "segments": [],
+        "evidence_gaps": (
+            "Customer segments, market size, growth, and willingness to pay could "
+            "not be validated from this run. Verify these claims against current "
+            "sources and customer research before making decisions."
+        ),
+        "analysis_mode": "analysis_unavailable",
+        "analysis_note": (
+            "The market analyst could not produce a reliable, source-grounded "
+            "result. This does not mean demand is absent; no market facts have "
+            "been invented."
+        ),
+    }
+
+
 def analyse_market(idea, results):
     """Turn search results into a structured market analysis.
 
-    Returns a dict on success, or None if the model failed or returned
-    something that was not valid JSON. The caller decides what to do about it.
+    Returns source-grounded analysis or a labelled unavailable result when the
+    model fails or its output cannot be validated.
     """
+    if not results:
+        return _fallback_analysis()
     evidence = condense(results)
     prompt = build_prompt(idea, evidence)
     try:
@@ -132,11 +154,11 @@ def analyse_market(idea, results):
         )
     except Exception as error:
         print("Market agent failed:", error)
-        return None
+        return _fallback_analysis()
     if result is None or len(result["segments"]) > 3:
-        return None
+        return _fallback_analysis()
     if any(segment["side"] not in {"buyer", "supply", "both", "n/a"} for segment in result["segments"]):
-        return None
+        return _fallback_analysis()
     return result
 
 
