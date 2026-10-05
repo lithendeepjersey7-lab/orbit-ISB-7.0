@@ -27,6 +27,7 @@ import threading
 import time
 
 MAX_ATTEMPTS = 4
+FALLBACK_MODEL = "gemini-2.5-flash"
 BASE_DELAY_SECONDS = 4.0  # waits ~4s, 8s, then 16s (plus up to 1s jitter)
 
 # The last agent-call failure seen by THIS thread. The pipeline runs each node
@@ -34,6 +35,8 @@ BASE_DELAY_SECONDS = 4.0  # waits ~4s, 8s, then 16s (plus up to 1s jitter)
 # same thread, so concurrent requests and the parallel market/competitor
 # nodes cannot see each other's failures.
 _local = threading.local()
+_fallback_lock = threading.Lock()
+_fallback_llm = None
 
 
 def is_transient(error):
@@ -56,23 +59,14 @@ def describe_error(error):
     return type(error).__name__ + ": " + text
 
 
-def invoke_with_retry(llm, prompt, agent_name, max_attempts=MAX_ATTEMPTS):
-    """Call llm.invoke(prompt), retrying only temporary 503 errors.
-
-    Returns the model reply. Re-raises the original exception if the error is
-    not transient or the attempts are used up, after remembering a short
-    description of it for take_failure().
-    """
-    _local.failure = None
+def _invoke_model(llm, prompt, agent_name, max_attempts):
+    """Invoke one model with bounded retries for transient 503 responses."""
     for attempt in range(1, max_attempts + 1):
         try:
             return llm.invoke(prompt)
         except Exception as error:
             transient = is_transient(error)
             if not transient or attempt == max_attempts:
-                suffix = " after %d attempts" % attempt if attempt > 1 else ""
-                kind = "temporarily unavailable" if transient else "failed"
-                _local.failure = "Gemini %s%s (%s)" % (kind, suffix, describe_error(error))
                 raise
             delay = BASE_DELAY_SECONDS * (2 ** (attempt - 1)) + random.uniform(0, 1)
             print(
@@ -80,6 +74,81 @@ def invoke_with_retry(llm, prompt, agent_name, max_attempts=MAX_ATTEMPTS):
                 % (agent_name, attempt, max_attempts, delay)
             )
             time.sleep(delay)
+
+
+def _create_fallback_model(primary):
+    """Create/cache the stable Flash fallback only when primary is overloaded."""
+    global _fallback_llm
+    if getattr(primary, "model", None) != "gemini-3.7-flash":
+        return None
+    if _fallback_llm is None:
+        with _fallback_lock:
+            if _fallback_llm is None:
+                from langchain_google_genai import ChatGoogleGenerativeAI
+
+                _fallback_llm = ChatGoogleGenerativeAI(
+                    model=FALLBACK_MODEL,
+                    thinking_budget=512,
+                    max_retries=0,
+                )
+    return _fallback_llm
+
+
+def invoke_with_retry(
+    llm,
+    prompt,
+    agent_name,
+    max_attempts=MAX_ATTEMPTS,
+    fallback_factory=_create_fallback_model,
+):
+    """Invoke Gemini with bounded retries and a stable-model overload fallback.
+
+    Only 503 errors trigger retries/failover. After the primary model exhausts
+    its retry budget, supported Gemini 3.7 Flash callers try Gemini 2.5 Flash
+    with the same prompt. Other failures are re-raised without extra calls.
+    """
+    _local.failure = None
+    try:
+        return _invoke_model(llm, prompt, agent_name, max_attempts)
+    except Exception as primary_error:
+        last_primary_error = primary_error
+        if not is_transient(primary_error):
+            _local.failure = "Gemini failed (%s)" % describe_error(primary_error)
+            raise
+
+    fallback = fallback_factory(llm)
+    if fallback is None:
+        suffix = " after %d attempts" % max_attempts
+        _local.failure = "Gemini temporarily unavailable%s (%s)" % (
+            suffix,
+            describe_error(last_primary_error),
+        )
+        raise last_primary_error
+
+    print(
+        "%s: primary model overloaded; retrying with %s"
+        % (agent_name, FALLBACK_MODEL)
+    )
+    try:
+        return _invoke_model(
+            fallback,
+            prompt,
+            agent_name + " fallback (" + FALLBACK_MODEL + ")",
+            max_attempts,
+        )
+    except Exception as fallback_error:
+        _local.failure = (
+            "Gemini primary model unavailable after %d attempts (%s); fallback %s "
+            "failed after %d attempts (%s)"
+            % (
+                max_attempts,
+                describe_error(last_primary_error),
+                FALLBACK_MODEL,
+                max_attempts,
+                describe_error(fallback_error),
+            )
+        )
+        raise
 
 
 def take_failure():

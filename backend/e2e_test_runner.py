@@ -501,6 +501,61 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
     if "503" not in (gemini_retry.take_failure() or ""):
         failures.append("retry: exhausted retries lost the original 503 detail")
 
+    # 2b. When the primary Gemini 3.7 model remains overloaded, a configured
+    #     stable Flash fallback gets the same prompt and can recover the call.
+    primary_calls = []
+    fallback_calls = []
+    primary_llm = SimpleNamespace(model="gemini-3.7-flash")
+
+    def primary_503(prompt):
+        primary_calls.append(prompt)
+        raise unavailable
+
+    def fallback_ok(prompt):
+        fallback_calls.append(prompt)
+        return "fallback reply"
+
+    fallback_llm = SimpleNamespace(model="gemini-2.5-flash", invoke=fallback_ok)
+
+    with patch.object(gemini_retry.time, "sleep"):
+        recovered = gemini_retry.invoke_with_retry(
+            SimpleNamespace(model=primary_llm.model, invoke=primary_503),
+            "same prompt",
+            "Test agent",
+            max_attempts=2,
+            fallback_factory=lambda primary: fallback_llm,
+        )
+    if (
+        recovered != "fallback reply"
+        or len(primary_calls) != 2
+        or fallback_calls != ["same prompt"]
+    ):
+        failures.append("retry: overloaded primary did not fail over to the stable model")
+
+    # The fallback is also bounded, and errors explain both failed models.
+    fallback_calls.clear()
+
+    def fallback_503(prompt):
+        fallback_calls.append(prompt)
+        raise unavailable
+
+    with patch.object(gemini_retry.time, "sleep"):
+        try:
+            gemini_retry.invoke_with_retry(
+                SimpleNamespace(model=primary_llm.model, invoke=primary_503),
+                "same prompt",
+                "Test agent",
+                max_attempts=2,
+                fallback_factory=lambda primary: SimpleNamespace(
+                    model=fallback_llm.model, invoke=fallback_503
+                ),
+            )
+            failures.append("retry: persistent primary and fallback outage did not raise")
+        except FakeApiError:
+            failure = gemini_retry.take_failure() or ""
+            if "gemini-2.5-flash" not in failure or len(fallback_calls) != 2:
+                failures.append("retry: dual-model failure was not reported or bounded")
+
     # 3. 429, auth, bad-request and unknown errors are never retried.
     for error in (FakeApiError(429, "RESOURCE_EXHAUSTED"), FakeApiError(403, "PERMISSION_DENIED"),
                   FakeApiError(400, "INVALID_ARGUMENT"), ValueError("boom")):

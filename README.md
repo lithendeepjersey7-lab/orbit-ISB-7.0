@@ -203,7 +203,7 @@ These tests verify technical integration and response contracts. They do not mea
 
 ## Reliability & Error Handling
 
-- **Transient failures:** Bounded retry handling (`gemini_retry.py`) is used for temporary Gemini service disruptions such as `503 UNAVAILABLE`. Retries are limited and intended only for temporary issues.
+- **Transient failures:** `gemini_retry.py` retries temporary Gemini `503 UNAVAILABLE` errors up to four times, then fails over from Gemini 3.7 Flash to the stable Gemini 2.5 Flash model. Both retry budgets are bounded; other error types are not retried.
 - **Non-retryable failures:** Authentication errors, invalid requests, and quota errors are not repeatedly retried.
 
 ---

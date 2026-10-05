@@ -364,10 +364,13 @@ covered in section 7.
 ## 10. Milestones 3 and 4: contracts and limitations
 
 `response_validation.py` enforces required JSON fields and nested types.
-Pipeline failures degrade partially and are reported; bounded retries apply
-only to transient Gemini 503 errors. The offline integration runner stubs all
-external providers and covers SaaS, consumer, hardware, marketplace, and
-EdTech ideas, including agent schemas, failures, advisor calls, and PDF output.
+Pipeline failures degrade partially and are reported. Transient Gemini 503
+errors receive four bounded retries; if Gemini 3.7 Flash stays overloaded, the
+same prompt is sent to Gemini 2.5 Flash with its own bounded retry budget. A
+malformed structured reply receives one bounded JSON-repair attempt. The
+offline integration runner stubs all external providers and covers SaaS,
+consumer, hardware, marketplace, and EdTech ideas, including agent schemas,
+failures, advisor calls, and PDF output.
 
 The browser carries up to four question/answer pairs into advisor follow-ups;
 there is no server-side user or session store. The advisor can use history to
