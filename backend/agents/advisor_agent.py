@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
-    from response_validation import parse_json_response
+    from response_validation import invoke_with_json_repair, parse_json_response
     from gemini_retry import invoke_with_retry
 except ImportError:
-    from agents.response_validation import parse_json_response
+    from agents.response_validation import invoke_with_json_repair, parse_json_response
     from agents.gemini_retry import invoke_with_retry
 
 load_dotenv()
@@ -92,9 +92,10 @@ def answer_follow_up(question, idea, market, competitors, swot, mvp, gtm, histor
     """Answer a follow-up from pipeline context, or return None on failure."""
     prompt = build_prompt(question, idea, market, competitors, swot, mvp, gtm, history, sources)
     try:
-        reply = invoke_with_retry(llm, prompt, "Advisor agent")
-        response_text = getattr(reply, "text", None)
+        result = invoke_with_json_repair(
+            llm, prompt, "Advisor agent", RESPONSE_SCHEMA, invoke_with_retry
+        )
     except Exception as error:
         print("Startup advisor failed:", error)
         return None
-    return parse_json(response_text)
+    return parse_json(json.dumps(result)) if result is not None else None

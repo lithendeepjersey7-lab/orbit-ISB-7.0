@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
-    from response_validation import parse_json_response
+    from response_validation import invoke_with_json_repair, parse_json_response
     from gemini_retry import invoke_with_retry
 except ImportError:
-    from agents.response_validation import parse_json_response
+    from agents.response_validation import invoke_with_json_repair, parse_json_response
     from agents.gemini_retry import invoke_with_retry
 
 load_dotenv()
@@ -132,12 +132,12 @@ def develop_gtm_strategy(idea, market, competitors, swot=None):
     """Create a structured GTM strategy, or return None on model/JSON failure."""
     prompt = build_prompt(idea, market, competitors, swot)
     try:
-        reply = invoke_with_retry(llm, prompt, "GTM agent")
-        response_text = getattr(reply, "text", None)
+        result = invoke_with_json_repair(
+            llm, prompt, "GTM agent", RESPONSE_SCHEMA, invoke_with_retry
+        )
     except Exception as error:
         print("GTM strategy agent failed:", error)
         return None
-    result = parse_json(response_text)
     if result is None:
         return None
     if not result["early_target_customers"] or not result["customer_acquisition_channels"]:
