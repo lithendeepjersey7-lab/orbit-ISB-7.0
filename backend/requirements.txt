@@ -2,6 +2,7 @@ fastapi>=0.115.0
 uvicorn>=0.34.0
 tavily-python>=0.7.0
 python-dotenv>=1.0.0
+reportlab>=4.2.0
 
 # Milestone 2 - pinned exactly, not >=, so Render installs what was tested
 langgraph==1.2.11

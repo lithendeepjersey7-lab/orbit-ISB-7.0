@@ -35,8 +35,8 @@ async function validateIdea() {
   const stages = [
     [0, "Searching the web..."],
     [4, "Reading the results. The market and competitor agents are running..."],
-    [25, "Still working. The free hosting tier is slow, but it is not stuck..."],
-    [75, "Taking longer than usual. The backend may be waking from sleep..."],
+    [25, "Running SWOT, MVP, and go-to-market analyses..."],
+    [75, "The analysis is taking longer than usual; the pipeline is still running..."],
   ];
   const startedAt = Date.now();
   statusLine.textContent = stages[0][1];
@@ -58,9 +58,17 @@ async function validateIdea() {
       body: JSON.stringify({ idea: idea }),
     });
     data = await response.json();
+    if (!response.ok) {
+      throw new Error(
+        typeof data.detail === "string"
+          ? data.detail
+          : "Validation failed with status " + response.status
+      );
+    }
   } catch (error) {
     clearInterval(ticker);
-    statusLine.textContent = "Could not reach the API. Is the backend running?";
+    statusLine.textContent =
+      error.message || "Could not reach the API. Is the backend running?";
     statusLine.className = "error";
     submitButton.disabled = false;
     return;
@@ -74,6 +82,12 @@ async function validateIdea() {
 }
 
 function showResults(data) {
+  if (!data || typeof data !== "object") {
+    statusLine.textContent = "The validation service returned an invalid response.";
+    statusLine.className = "error";
+    submitButton.disabled = false;
+    return;
+  }
   if (data.summary) {
     const summary = document.createElement("div");
     summary.className = "summary";
@@ -87,12 +101,23 @@ function showResults(data) {
 
   latestValidation = data;
 
+  const reportButton = document.createElement("button");
+  reportButton.type = "button";
+  reportButton.className = "download-report";
+  reportButton.textContent = "Download PDF validation report";
+  reportButton.addEventListener("click", () => downloadReport(data, reportButton));
+  resultsBox.appendChild(reportButton);
+
   resultsBox.appendChild(buildAgentRun(data));
 
   // The analysis comes before the raw sources. A founder wants the conclusion
   // first and the evidence underneath it, not the other way round.
   if (data.market) resultsBox.appendChild(buildMarket(data.market));
   if (data.competitors) resultsBox.appendChild(buildCompetitors(data.competitors));
+  if (data.swot) resultsBox.appendChild(buildSwot(data.swot));
+  if (data.mvp) resultsBox.appendChild(buildMvp(data.mvp));
+  if (data.gtm) resultsBox.appendChild(buildGtm(data.gtm));
+  resultsBox.appendChild(buildAdvisor(data));
 
   const queries = document.createElement("div");
   queries.className = "queries";
@@ -102,7 +127,7 @@ function showResults(data) {
   queries.appendChild(heading);
 
   const list = document.createElement("ol");
-  for (const query of data.queries) {
+  for (const query of data.queries || []) {
     const item = document.createElement("li");
     item.textContent = query;
     list.appendChild(item);
@@ -111,8 +136,8 @@ function showResults(data) {
   resultsBox.appendChild(queries);
 
   // Show the sources grouped under the angle that found them
-  for (const category of data.categories) {
-    const group = data.results.filter((r) => r.category === category);
+  for (const category of data.categories || []) {
+    const group = (data.results || []).filter((r) => r.category === category);
     if (group.length === 0) continue;
 
     const label = document.createElement("h2");
@@ -132,7 +157,7 @@ function showResults(data) {
 }
 
 function buildAgentRun(data) {
-  const stats = data.stats;
+  const stats = data.stats || {};
   const panel = document.createElement("div");
   panel.className = "agentrun";
 
@@ -144,7 +169,7 @@ function buildAgentRun(data) {
   row.className = "stats";
 
   const tiles = [
-    [3, "Agents run"],
+    [5, "Analysis agents"],
     [stats.searches_run, "Searches, in parallel"],
     [stats.duplicates_removed, "Duplicates removed"],
     [stats.distinct_sites, "Distinct sites"],
@@ -172,7 +197,7 @@ function buildAgentRun(data) {
   const foot = document.createElement("p");
   foot.className = "agentrun__foot";
   foot.textContent =
-    stats.shown + " sources gathered, then analysed by two agents at the same time, in " +
+    (stats.shown || 0) + " sources gathered and analysed across the validation pipeline in " +
     data.elapsed_seconds + "s total";
   panel.appendChild(foot);
 
@@ -300,6 +325,7 @@ function buildMarket(market) {
     box.appendChild(withEstimateMarks(market.evidence_gaps));
   }
 
+  addAskButton(box, "Market analysis");
   return box;
 }
 
@@ -365,6 +391,7 @@ function buildCompetitors(data) {
     box.appendChild(withEstimateMarks(data.market_gaps));
   }
 
+  addAskButton(box, "Competitor analysis");
   return box;
 }
 
@@ -384,8 +411,43 @@ function buildErrors(errors) {
     item.textContent = error;
     list.appendChild(item);
   }
+
   box.appendChild(list);
   return box;
+}
+
+function addAskButton(box, title) {
+  const ask = document.createElement("button");
+  ask.type = "button";
+  ask.className = "ask-about";
+  ask.textContent = "Ask about this";
+  ask.addEventListener("click", function () {
+    const advisor = document.querySelector(".advisor textarea");
+    if (!advisor) return;
+    advisor.value = "Explain the " + title.toLowerCase() + " findings and their implications.";
+    advisor.focus();
+    advisor.scrollIntoView({ behavior: "smooth", block: "center" });
+    document.querySelector(".advisor > button").click();
+  });
+  box.appendChild(ask);
+}
+
+function buildSection(title, data) {
+  const box = buildGenericAnalysis(title, data);
+  addAskButton(box, title);
+  return box;
+}
+
+function buildSwot(data) {
+  return buildSection("SWOT and execution risks", data);
+}
+
+function buildMvp(data) {
+  return buildSection("MVP recommendations", data);
+}
+
+function buildGtm(data) {
+  return buildSection("Go-to-market strategy", data);
 }
 
 function buildGenericAnalysis(title, data) {
@@ -468,6 +530,28 @@ function buildAdvisor(data) {
   const answer = document.createElement("div");
   answer.className = "advisor-answer";
   box.appendChild(answer);
+  const history = [];
+  const suggested = document.createElement("div");
+  suggested.className = "suggested-questions";
+  const suggestedHeading = document.createElement("p");
+  suggestedHeading.textContent = "Suggested questions";
+  suggested.appendChild(suggestedHeading);
+  for (const question of [
+    "What is the highest-priority risk and how should we mitigate it?",
+    "Which MVP feature should we build first?",
+    "How can we find our first 100 users?",
+  ]) {
+    const suggestion = document.createElement("button");
+    suggestion.type = "button";
+    suggestion.className = "suggested-question";
+    suggestion.textContent = question;
+    suggestion.addEventListener("click", function () {
+      input.value = question;
+      button.click();
+    });
+    suggested.appendChild(suggestion);
+  }
+  box.insertBefore(suggested, input);
 
   button.addEventListener("click", async function () {
     const question = input.value.trim();
@@ -494,7 +578,9 @@ function buildAdvisor(data) {
           competitors: data.competitors,
           swot: data.swot,
           mvp: data.mvp,
-          gtm: data.gtm
+          gtm: data.gtm,
+          results: data.results || [],
+          conversation_history: history
         })
       });
 
@@ -512,13 +598,71 @@ function buildAdvisor(data) {
 
       answer.textContent =
         result.answer || "The advisor could not provide an answer.";
+      if (result.has_sufficient_context === false && result.missing_context.length) {
+        const missing = document.createElement("p");
+        missing.className = "advisor-missing";
+        missing.textContent = "Needs validation: " + result.missing_context.join(", ");
+        answer.appendChild(missing);
+      }
+      if (result.citations && result.citations.length) {
+        const citationList = document.createElement("ul");
+        citationList.className = "citations";
+        for (const citation of result.citations) {
+          const item = document.createElement("li");
+          const label = citation.label || "From report";
+          if (citation.url) {
+            const link = document.createElement("a");
+            link.href = citation.url;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.textContent = label + ": " + citation.title;
+            item.appendChild(link);
+          } else {
+            item.textContent = label + ": " + citation.title;
+          }
+          citationList.appendChild(item);
+        }
+        answer.appendChild(citationList);
+      }
+      history.push({ role: "user", content: question });
+      history.push({ role: "assistant", content: result.answer || "" });
+      input.value = "";
     } catch (error) {
       answer.textContent =
         serverMessage || "Could not reach the advisor. Please try again.";
     } finally {
       button.disabled = false;
     }
+
   });
 
   return box;
+}
+
+async function downloadReport(data, button) {
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = "Preparing PDF...";
+  try {
+    const response = await fetch(API_URL + "/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error("Report request failed (" + response.status + ")");
+    const blob = await response.blob();
+    if (blob.type !== "application/pdf") throw new Error("The server did not return a PDF.");
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "litmus-validation-report.pdf";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    statusLine.textContent = error.message || "Could not generate the PDF report.";
+    statusLine.className = "error";
+  } finally {
+    button.textContent = original;
+    button.disabled = false;
+  }
 }
