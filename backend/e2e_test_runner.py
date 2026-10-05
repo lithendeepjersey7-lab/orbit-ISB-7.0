@@ -284,6 +284,29 @@ def _run_response_validation_checks():
             if invoke_agent(module) is not None:
                 failures.append(name + " agent accepted a response without text")
 
+        with patch.object(
+            module.llm,
+            "invoke",
+            side_effect=[
+                SimpleNamespace(text="Here is the result, but it is not JSON."),
+                SimpleNamespace(text=valid_text),
+            ],
+        ) as invoke:
+            repaired = invoke_agent(module)
+            if repaired != valid_payload or invoke.call_count != 2:
+                failures.append(name + " agent did not recover from one malformed JSON response")
+
+        with patch.object(
+            module.llm,
+            "invoke",
+            side_effect=[
+                SimpleNamespace(text="not JSON"),
+                SimpleNamespace(text="still not JSON"),
+            ],
+        ) as invoke:
+            if invoke_agent(module) is not None or invoke.call_count != 2:
+                failures.append(name + " agent did not bound JSON repair to one attempt")
+
         if make_semantically_invalid is not None:
             semantic_invalid = json.loads(valid_text)
             make_semantically_invalid(semantic_invalid)

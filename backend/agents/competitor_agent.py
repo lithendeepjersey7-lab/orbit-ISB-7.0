@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
-    from response_validation import parse_json_response
+    from response_validation import invoke_with_json_repair, parse_json_response
     from gemini_retry import invoke_with_retry
 except ImportError:
-    from agents.response_validation import parse_json_response
+    from agents.response_validation import invoke_with_json_repair, parse_json_response
     from agents.gemini_retry import invoke_with_retry
 
 load_dotenv()
@@ -122,12 +122,12 @@ def analyse_competitors(idea, results):
     evidence = condense(results)
     prompt = build_prompt(idea, evidence)
     try:
-        reply = invoke_with_retry(llm, prompt, "Competitor agent")
-        response_text = getattr(reply, "text", None)
+        result = invoke_with_json_repair(
+            llm, prompt, "Competitor agent", RESPONSE_SCHEMA, invoke_with_retry
+        )
     except Exception as error:
         print("Competitor agent failed:", error)
         return None
-    result = parse_json(response_text)
     if result is None or len(result["competitors"]) > 6:
         return None
     if any(competitor["type"] not in {"direct", "indirect"} for competitor in result["competitors"]):

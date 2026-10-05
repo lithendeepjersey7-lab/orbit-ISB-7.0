@@ -626,7 +626,14 @@ function buildAdvisor(data) {
         // instead of claiming the server could not be reached.
         try {
           const body = await response.json();
-          if (typeof body.detail === "string") serverMessage = body.detail;
+          if (typeof body.detail === "string") {
+            serverMessage = body.detail;
+          } else if (Array.isArray(body.detail)) {
+            serverMessage = body.detail
+              .map((item) => item.msg || item.type || "")
+              .filter(Boolean)
+              .join("; ");
+          }
         } catch (parseError) {}
         throw new Error("Advisor request failed");
       }
