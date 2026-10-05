@@ -421,16 +421,19 @@ covered in section 7.
 ## 10. Milestones 3 and 4: contracts and limitations
 
 `response_validation.py` enforces required JSON fields and nested types.
-Pipeline failures degrade partially and are reported. Transient Gemini 503
-503 errors receive one quick retry; if Gemini 3.7 Flash stays overloaded, the
-same prompt is sent to Gemini 3.8 Flash with one retry. A model-specific 429
+Pipeline failures degrade partially and are reported. Transient Gemini 503 and
+500 INTERNAL errors receive one quick retry; if Gemini 3.7 Flash stays
+overloaded, the same prompt is sent to Gemini 3.8 Flash with one retry. A model-specific 429
 quota response switches models once without repeating the limited-model call.
 Project-wide quota exhaustion still requires an operator to restore quota or
 configure billing/API credentials. A malformed structured reply receives one
-bounded JSON-repair attempt. The
-offline integration runner stubs all external providers and covers SaaS,
+bounded JSON-repair attempt. The offline integration runner stubs all external providers and covers SaaS,
 consumer, hardware, marketplace, and EdTech ideas, including agent schemas,
 failures, advisor calls, and PDF output.
+
+If either market or competitor analysis succeeds, downstream strategy agents
+continue from that available context and receive an empty object for the
+unavailable analysis instead of skipping the rest of the pipeline.
 
 The browser carries up to four question/answer pairs into advisor follow-ups;
 there is no server-side user or session store. The advisor can use history to
