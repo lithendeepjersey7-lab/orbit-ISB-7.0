@@ -94,9 +94,7 @@ def competitor_node(state: State) -> dict:
 
 
 def swot_node(state: State) -> dict:
-    """Run SWOT analysis after both Milestone 2 analyses are complete."""
-    if not state.get("market") and not state.get("competitors"):
-        return {"swot": None, "errors": ["SWOT agent skipped: no market or competitor analysis available"]}
+    """Run SWOT even with missing research; the agent labels any fallback draft."""
     result = analyse_swot(
         state["idea"],
         state.get("market") or {},
@@ -113,9 +111,7 @@ def swot_node(state: State) -> dict:
 
 
 def mvp_node(state: State) -> dict:
-    """Recommend a minimal first version from the existing analyses."""
-    if not state.get("market") and not state.get("competitors"):
-        return {"mvp": None, "errors": ["MVP agent skipped: no market or competitor analysis available"]}
+    """Recommend an MVP from available research, or the idea alone if needed."""
     result = recommend_mvp(
         state["idea"],
         state.get("market") or {},
