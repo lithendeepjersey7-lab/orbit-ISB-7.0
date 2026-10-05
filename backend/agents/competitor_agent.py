@@ -113,12 +113,32 @@ def build_prompt(idea, evidence):
     )
 
 
+def _fallback_analysis():
+    return {
+        "landscape_summary": "A source-grounded competitor analysis is unavailable for this validation run.",
+        "competitors": [],
+        "market_gaps": (
+            "No competitor gap was validated from this run. Identify direct and "
+            "indirect alternatives and validate unmet needs before claiming "
+            "differentiation; this result does not establish that competitors "
+            "or market gaps are absent."
+        ),
+        "analysis_mode": "analysis_unavailable",
+        "analysis_note": (
+            "The competitor analyst could not produce a source-grounded result. "
+            "No companies or competitor claims have been invented."
+        ),
+    }
+
+
 def analyse_competitors(idea, results):
     """Map the competitive landscape from search results.
 
-    Returns a dict on success, or None if the model failed or returned
-    something that was not valid JSON.
+    Returns source-grounded analysis or a labelled unavailable result when the
+    model fails or its output cannot be validated.
     """
+    if not results:
+        return _fallback_analysis()
     evidence = condense(results)
     prompt = build_prompt(idea, evidence)
     try:
@@ -127,11 +147,11 @@ def analyse_competitors(idea, results):
         )
     except Exception as error:
         print("Competitor agent failed:", error)
-        return None
+        return _fallback_analysis()
     if result is None or len(result["competitors"]) > 6:
-        return None
+        return _fallback_analysis()
     if any(competitor["type"] not in {"direct", "indirect"} for competitor in result["competitors"]):
-        return None
+        return _fallback_analysis()
     return result
 
 

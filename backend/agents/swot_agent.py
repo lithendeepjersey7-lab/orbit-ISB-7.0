@@ -170,6 +170,11 @@ def analyse_swot(idea, market, competitors):
     Returns a dict on success, or None if the model failed or returned
     something that was not valid JSON. The caller decides what to do about it.
     """
+    if (
+        market.get("analysis_mode") == "analysis_unavailable"
+        and competitors.get("analysis_mode") == "analysis_unavailable"
+    ):
+        return _fallback_analysis(idea, market, competitors)
     prompt = build_prompt(idea, market, competitors)
     try:
         result = invoke_with_json_repair(

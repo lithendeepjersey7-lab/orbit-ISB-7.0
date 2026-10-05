@@ -97,5 +97,21 @@ def answer_follow_up(question, idea, market, competitors, swot, mvp, gtm, histor
         )
     except Exception as error:
         print("Startup advisor failed:", error)
-        return None
-    return parse_json(json.dumps(result)) if result is not None else None
+        result = None
+    answer = parse_json(json.dumps(result)) if result is not None else None
+    if answer is not None:
+        return answer
+    return {
+        "answer": (
+            "The AI advisor could not produce a reliable response, so I can't "
+            "answer this from the supplied validation. Please use the available "
+            "report sections and try again later; no unsupported answer or citation "
+            "has been generated."
+        ),
+        "has_sufficient_context": False,
+        "missing_context": [
+            "A successful advisor response grounded in the supplied analysis is unavailable."
+        ],
+        "citations": [],
+        "analysis_mode": "advisor_unavailable",
+    }

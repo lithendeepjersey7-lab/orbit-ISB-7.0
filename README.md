@@ -224,6 +224,7 @@ These tests verify technical integration and response contracts. They do not mea
 
 - **Transient failures:** `gemini_retry.py` retries temporary Gemini `503 UNAVAILABLE` and `500 INTERNAL` errors once, then fails over from Gemini 3.7 Flash to Gemini 3.8 Flash. A model-specific `429 RESOURCE_EXHAUSTED` is sent to the alternate model without retrying the limited model. This keeps outages from consuming the full request window; other error types are not retried. Project-wide quota exhaustion still requires quota reset or billing/API-key changes in Google AI Studio.
 - **SWOT and MVP continuity:** If Gemini is unavailable or returns unusable structured output, these two critical stages return a clearly labelled conservative, context-limited draft instead of disappearing. The validation response and report identify the fallback and warn that its risk ratings and recommendations need customer validation; this does not restore Gemini quota or replace a successful AI analysis.
+- **Other agent continuity:** Market and competitor sections explicitly report when source-grounded analysis is unavailable without inventing facts. GTM and the conversational advisor also return labelled, limited responses when Gemini is unavailable. The single report download action produces a PDF attachment; it does not offer a misleading HTML file.
 - **Non-retryable failures:** Authentication errors, invalid requests, and quota errors are not repeatedly retried.
 
 ---

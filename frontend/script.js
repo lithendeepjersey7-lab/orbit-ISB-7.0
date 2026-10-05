@@ -109,7 +109,6 @@ function showResults(data) {
   resultsBox.appendChild(reportButton);
 
   resultsBox.appendChild(buildAgentRun(data));
-  resultsBox.appendChild(buildReportDownload(data));
 
   // The analysis comes before the raw sources. A founder wants the conclusion
   // first and the evidence underneath it, not the other way round.
@@ -155,42 +154,6 @@ function showResults(data) {
       resultsBox.appendChild(buildCard(result));
     }
   }
-}
-
-function buildReportDownload(data) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.textContent = "Download validation report";
-  button.addEventListener("click", async function () {
-    button.disabled = true;
-    statusLine.textContent = "Preparing your report...";
-
-    try {
-      const response = await fetch(API_URL + "/report", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Report generation failed");
-
-      const report = await response.blob();
-      const url = URL.createObjectURL(report);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "startup-validation-report.html";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      statusLine.textContent = "Validation report downloaded.";
-    } catch (error) {
-      statusLine.textContent = "Could not generate the validation report.";
-      statusLine.className = "error";
-    } finally {
-      button.disabled = false;
-    }
-  });
-  return button;
 }
 
 function buildAgentRun(data) {
@@ -700,8 +663,12 @@ async function downloadReport(data, button) {
     const link = document.createElement("a");
     link.href = url;
     link.download = "litmus-validation-report.pdf";
+    document.body.appendChild(link);
     link.click();
+    link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    statusLine.textContent = "Validation PDF downloaded.";
+    statusLine.className = "";
   } catch (error) {
     statusLine.textContent = error.message || "Could not generate the PDF report.";
     statusLine.className = "error";
