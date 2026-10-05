@@ -115,6 +115,7 @@ def mvp_node(state: State) -> dict:
         state["idea"],
         state["market"],
         state["competitors"],
+        state.get("swot"),
     )
     if result is None:
         return {"mvp": None, "errors": [_agent_failure("MVP agent")]}

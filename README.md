@@ -14,7 +14,7 @@ A submitted startup idea is analyzed across:
 - MVP Recommendations
 - Go-To-Market Strategy
 
-The results can be downloaded as an HTML validation report or explored through a conversational AI advisor.
+The results can be downloaded as a PDF validation report or explored through a conversational AI advisor with report and live-search citations.
 
 | Resource | Link |
 |----------|------|
@@ -36,6 +36,7 @@ The results can be downloaded as an HTML validation report or explored through a
 | AI Integration | LangChain Google GenAI (v4.4.0) | Interface for model interactions |
 | Orchestration | LangGraph | Manages the multi-agent pipeline |
 | Web Research | Tavily Search API | Web search for gathering supporting evidence |
+| PDF Reports | ReportLab | Builds the downloadable validation report |
 | Configuration | python-dotenv | Environment variable management |
 | Validation | Custom response validation | Structural validation of agent outputs |
 
@@ -57,7 +58,7 @@ MVP Recommendations
 Go-To-Market Strategy
      ↓
 Validation Context
-     ├── Downloadable HTML Validation Report
+     ├── Downloadable PDF Validation Report
      └── Conversational AI Advisor
 ```
 
@@ -68,13 +69,13 @@ Validation Context
 | Web Search | Uses the Tavily Search API to gather relevant web-search evidence. |
 | Market Analysis | Analyzes market opportunities, demand, and relevant customer segments. |
 | Competitor Analysis | Identifies competitors, existing solutions, and potential market gaps. |
-| SWOT & Risks | Generates strengths, weaknesses, opportunities, threats, and key execution risks. |
-| MVP Recommendations | Recommends foundational product features and initial MVP scope. |
-| Go-To-Market Strategy | Provides guidance on positioning, target users, acquisition channels, and early market entry. |
-| Validation Report | Generates a downloadable HTML report containing the compiled validation results. |
-| Conversational AI Advisor | Answers follow-up questions using the completed validation context. |
+| SWOT & Risks | Returns structured risks with category, likelihood, impact, and mitigation alongside SWOT findings. |
+| MVP Recommendations | Groups Must/Should/Nice-to-have features and orders phased build priorities. |
+| Go-To-Market Strategy | Provides positioning, target users, channels, first-100-user plan, monetization hypothesis, and a 90-day roadmap. |
+| Validation Report | Generates a PDF with the analysis, evidence sources, roadmap, and an explicitly labeled evidence-coverage score. |
+| Conversational AI Advisor | Answers follow-ups from report/live-search context, keeps recent in-session history, and returns validated citations. |
 
-The advisor does not rerun the validation pipeline. The `/advisor` endpoint is stateless: the required validation context is supplied with each request.
+The advisor does not rerun the validation pipeline. The frontend supplies the validation context and recent conversation history with each request. Citations are restricted to report sections and source URLs included in that request.
 
 ---
 
@@ -84,7 +85,7 @@ The advisor does not rerun the validation pipeline. The `/advisor` endpoint is s
 orbit-ISB-7.0/
 ├── backend/
 │   ├── main.py                  # API entrypoint and app configuration
-│   ├── report_generator.py      # HTML validation report generation
+│   ├── report_generator.py      # PDF validation report generation
 │   ├── e2e_test_runner.py       # Offline end-to-end test runner
 │   └── agents/
 │       ├── web_search_agent.py      # Tavily Search API integration
@@ -95,7 +96,7 @@ orbit-ISB-7.0/
 │       ├── gtm_agent.py             # Go-to-market strategy
 │       ├── advisor_agent.py         # Context-aware follow-up advisor
 │       ├── gemini_retry.py          # Bounded retry handling for transient Gemini failures
-│       ├── response_validation.py   # Response structure validation
+│       ├── response_validation.py   # Shared JSON structure validation
 │       └── pipeline.py              # LangGraph validation pipeline orchestration
 ├── frontend/
 │   ├── index.html               # User interface
@@ -166,7 +167,7 @@ The frontend automatically selects the local backend when running on localhost.
 | GET | `/` | Service health and project information |
 | POST | `/validate` | Runs the complete startup validation pipeline |
 | POST | `/advisor` | Answers follow-up questions using the supplied validation context |
-| POST | `/report` | Generates the downloadable HTML validation report |
+| POST | `/report` | Generates the downloadable PDF validation report |
 
 ---
 
@@ -194,7 +195,7 @@ The tests use synthetic/offline fixtures and do **not** call live Gemini or Tavi
 - Error handling
 - Retry behavior
 - Advisor behavior
-- HTML report generation
+- PDF report sections, media type, and download headers
 
 These tests verify technical integration and response contracts. They do not measure the factual quality or real-world usefulness of live AI-generated business analysis.
 
@@ -223,7 +224,7 @@ These tests verify technical integration and response contracts. They do not mea
 - Live analysis depends on Gemini and Tavily API availability and usage limits.
 - Temporary upstream service failures or quota limits can affect live validation.
 - AI-generated business analysis should be independently reviewed before important business decisions.
-- The system does not produce an overall numeric validation score.
+- The PDF's 0–100 score measures evidence-section coverage only; it is not a startup viability or investment score.
 
 ---
 

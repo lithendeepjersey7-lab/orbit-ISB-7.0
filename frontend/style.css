@@ -336,3 +336,24 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .agenterrors ul { margin: 0; padding-left: 18px; font-size: 14.5px; }
+
+.download-report { margin: 0 0 4px; }
+.ask-about, .suggested-question {
+  margin: 8px 8px 0 0;
+  padding: 7px 12px;
+  background: #e9efff;
+  color: #2449c4;
+  font-size: 13px;
+}
+.ask-about:hover, .suggested-question:hover { background: #dce6ff; }
+.advisor-answer { margin-top: 14px; white-space: pre-wrap; }
+.advisor-missing { color: #7a4a10; }
+.citations { padding-left: 20px; font-size: 13px; color: var(--muted); }
+.suggested-questions { margin: 10px 0 16px; }
+.suggested-questions p { margin: 0 0 4px; font-weight: 600; }
+
+@media (max-width: 560px) {
+  main { padding: 28px 14px 56px; }
+  .analysis { padding: 18px 16px; }
+  .suggested-question { display: block; }
+}

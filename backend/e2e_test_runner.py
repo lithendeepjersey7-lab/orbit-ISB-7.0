@@ -23,12 +23,15 @@ IDEAS = [
 ]
 
 REPORT_HEADINGS = (
-    "1. Startup Idea / Executive Summary",
-    "2. Market Analysis",
-    "3. Competitor Analysis",
-    "4. SWOT &amp; Risks",
-    "5. MVP Recommendations",
-    "6. Go-To-Market Strategy",
+    b"1. Startup Idea / Executive Summary",
+    b"2. Market Analysis",
+    b"3. Competitor Analysis",
+    b"4. SWOT & Risks",
+    b"5. MVP Recommendations",
+    b"6. Go-To-Market Strategy",
+    b"7. Validation Score & Verdict",
+    b"8. Roadmap",
+    b"9. Sources",
 )
 
 
@@ -47,9 +50,9 @@ def _is_valid_result(name, value):
         "search": ("queries", "categories", "counts", "results", "stats"),
         "market": ("market_summary", "market_size", "growth_and_demand", "segments", "evidence_gaps"),
         "competitors": ("landscape_summary", "competitors", "market_gaps"),
-        "swot": ("strengths", "weaknesses", "opportunities", "threats", "execution_risks"),
-        "mvp": ("target_audience", "product_summary", "must_have_features", "nice_to_have_features"),
-        "gtm": ("positioning", "early_target_customers", "customer_acquisition_channels", "first_90_days"),
+        "swot": ("strengths", "weaknesses", "opportunities", "threats", "risks"),
+        "mvp": ("target_audience", "product_summary", "must_have_features", "should_have_features", "nice_to_have_features", "build_phases", "prioritization_rationale"),
+        "gtm": ("positioning", "early_target_customers", "customer_acquisition_channels", "first_100_users", "monetization", "first_90_days"),
     }
     if not isinstance(value, dict) or not all(key in value for key in required[name]):
         return False
@@ -57,8 +60,8 @@ def _is_valid_result(name, value):
         "search": ("queries", "categories", "results"),
         "market": ("segments",),
         "competitors": ("competitors",),
-        "swot": ("strengths", "weaknesses", "opportunities", "threats", "execution_risks"),
-        "mvp": ("must_have_features", "nice_to_have_features"),
+        "swot": ("strengths", "weaknesses", "opportunities", "threats", "risks"),
+        "mvp": ("must_have_features", "should_have_features", "nice_to_have_features", "build_phases"),
         "gtm": ("early_target_customers", "customer_acquisition_channels"),
     }
     if any(not isinstance(value.get(key), list) for key in list_fields.get(name, ())):
@@ -68,6 +71,21 @@ def _is_valid_result(name, value):
     if name == "gtm" and not isinstance(value.get("positioning"), dict):
         return False
     if name == "gtm" and not isinstance(value.get("first_90_days"), dict):
+        return False
+    if name == "swot" and any(
+        not all(key in risk for key in ("category", "risk", "likelihood", "impact", "mitigation"))
+        for risk in value["risks"]
+    ):
+        return False
+    if name == "mvp" and any(
+        not all(key in phase for key in ("phase", "features", "exit_criteria"))
+        for phase in value["build_phases"]
+    ):
+        return False
+    if name == "gtm" and (
+        not value["first_100_users"].get("plan")
+        or not value["monetization"].get("pricing_hypothesis")
+    ):
         return False
     return True
 
@@ -130,7 +148,13 @@ def _fixtures(domain, idea):
             "weaknesses": [marker + "not assessed offline"],
             "opportunities": [marker + "not assessed offline"],
             "threats": [marker + "not assessed offline"],
-            "execution_risks": [marker + "not assessed offline"],
+            "risks": [{
+                "category": "market",
+                "risk": marker + "not assessed offline",
+                "likelihood": "medium",
+                "impact": "medium",
+                "mitigation": marker + "validate with customers",
+            }],
         },
         "mvp": {
             "target_audience": marker + "not assessed offline",
@@ -139,7 +163,14 @@ def _fixtures(domain, idea):
                 "feature": marker + "fixture feature",
                 "why_important": marker + "not assessed offline",
             }],
+            "should_have_features": [],
             "nice_to_have_features": [],
+            "build_phases": [{
+                "phase": "Prototype",
+                "features": [marker + "fixture feature"],
+                "exit_criteria": marker + "fixture criterion",
+            }],
+            "prioritization_rationale": marker + "fixture rationale",
         },
         "gtm": {
             "positioning": {
@@ -157,6 +188,15 @@ def _fixtures(domain, idea):
                 "rationale": marker + "not assessed offline",
                 "low_cost_test": marker + "not assessed offline",
             }],
+            "first_100_users": {
+                "plan": [marker + "fixture outreach"],
+                "success_signal": marker + "fixture signal",
+            },
+            "monetization": {
+                "model": marker + "fixture model",
+                "pricing_hypothesis": marker + "fixture pricing hypothesis",
+                "validation_test": marker + "fixture pricing test",
+            },
             "first_90_days": {
                 "days_1_30": [marker + "fixture step"],
                 "days_31_60": [marker + "fixture step"],
@@ -172,6 +212,7 @@ def _run_response_validation_checks():
         "answer": "OFFLINE TEST STUB: answer",
         "has_sufficient_context": True,
         "missing_context": [],
+        "citations": [],
     }
     cases = {
         "market": (
@@ -294,10 +335,15 @@ def _run_idea(app_module, pipeline_module, domain, idea):
             raise AssertionError("SWOT did not receive expected market/competitor context")
         return fixtures["swot"]
 
-    def mvp_stub(received_idea, market, competitors):
+    def mvp_stub(received_idea, market, competitors, swot):
         record("mvp")
-        if received_idea != idea or market != fixtures["market"] or competitors != fixtures["competitors"]:
-            raise AssertionError("MVP did not receive expected market/competitor context")
+        if (
+            received_idea != idea
+            or market != fixtures["market"]
+            or competitors != fixtures["competitors"]
+            or swot != fixtures["swot"]
+        ):
+            raise AssertionError("MVP did not receive expected idea/analysis context")
         return fixtures["mvp"]
 
     def gtm_stub(received_idea, market, competitors, swot):
@@ -352,16 +398,17 @@ def _run_idea(app_module, pipeline_module, domain, idea):
         errors.extend(str(error) for error in result.get("errors", []))
         try:
             response = app_module.generate_report(result)
-            body = response.body.decode("utf-8")
+            body = response.body
             report_generated = all(heading in body for heading in REPORT_HEADINGS)
             report_downloadable = (
-                response.media_type == "text/html"
+                response.media_type == "application/pdf"
+                and body.startswith(b"%PDF")
                 and "attachment; filename=" in response.headers.get("content-disposition", "")
             )
             if not report_generated:
                 errors.append("Report missing one or more required section headings")
             if not report_downloadable:
-                errors.append("Report response was not an HTML attachment")
+                errors.append("Report response was not a downloadable PDF")
         except Exception as error:
             errors.append("Report exception: {}: {}".format(type(error).__name__, error))
     else:
@@ -494,16 +541,32 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
 
     # 7. /advisor: success, 503 -> HTTP 503, invalid reply -> HTTP 502, and a
     #    request whose failed agents are null is accepted (it used to be a 422).
-    good = {"answer": "Focus on the buyer segment.", "has_sufficient_context": True, "missing_context": []}
+    good = {"answer": "Focus on the buyer segment.", "has_sufficient_context": True, "missing_context": [], "citations": []}
     request = app_module.AdvisorRequest(
         question="What is the biggest risk?", idea="retry test idea",
         market=fixtures["market"], competitors=None,
+        results=fixtures["search"]["results"],
+        conversation_history=[{"role": "user", "content": "prior detail"}],
     )
     with patch.object(advisor_module.llm, "invoke", return_value=SimpleNamespace(text=json.dumps(good))) as invoke:
-        if app_module.advise(request) != good:
+        if {key: app_module.advise(request)[key] for key in good} != good:
             failures.append("advisor: valid answer was not returned")
         if "retry test idea" not in invoke.call_args.args[0] or "What is the biggest risk?" not in invoke.call_args.args[0]:
             failures.append("advisor: idea/question missing from the prompt")
+    cited = {
+        **good,
+        "citations": [
+            {"source_id": "report:market", "reason": "market context"},
+            {"source_id": "live:1", "reason": "search evidence"},
+            {"source_id": "live:999", "reason": "not supplied"},
+        ],
+    }
+    with patch.object(advisor_module.llm, "invoke", return_value=SimpleNamespace(text=json.dumps(cited))) as invoke:
+        answer = app_module.advise(request)
+        if [item["label"] for item in answer["citations"]] != ["From report", "From live search"]:
+            failures.append("advisor: source labels or untrusted citation filtering failed")
+        if "prior detail" not in invoke.call_args.args[0]:
+            failures.append("advisor: conversation history missing from the prompt")
     with patch.object(gemini_retry.time, "sleep"), patch.object(advisor_module.llm, "invoke", side_effect=unavailable):
         try:
             app_module.advise(request)
@@ -528,7 +591,7 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
     body = {"question": "q", "idea": "i", "market": None, "competitors": None, "swot": None, "mvp": None, "gtm": None}
     with patch.object(advisor_module.llm, "invoke", return_value=SimpleNamespace(text=json.dumps(good))):
         response = client.post("/advisor", json=body)
-        if response.status_code != 200 or response.json() != good:
+        if response.status_code != 200 or any(response.json().get(key) != value for key, value in good.items()):
             failures.append("HTTP /advisor with null context: {} {}".format(response.status_code, response.text[:100]))
     with patch.object(gemini_retry.time, "sleep"), patch.object(advisor_module.llm, "invoke", side_effect=unavailable):
         response = client.post("/advisor", json=body)
@@ -547,8 +610,8 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
         failures.append("HTTP /validate did not return the full pipeline result")
     else:
         report = client.post("/report", json=validated.json())
-        if report.status_code != 200 or "attachment" not in report.headers.get("content-disposition", ""):
-            failures.append("HTTP /report did not return an attachment")
+        if report.status_code != 200 or report.headers.get("content-type") != "application/pdf" or not report.content.startswith(b"%PDF"):
+            failures.append("HTTP /report did not return a PDF attachment")
     return failures, None
 
 
@@ -633,7 +696,7 @@ def main():
 
     print("\nPrompt/agent issues for the next M4 step")
     print("- This stubbed run cannot assess grounding, usefulness, domain fit, or prompt consistency.")
-    print("- A schema-invalid response is rejected as a whole; consider a bounded repair attempt and safe validation diagnostics.")
+    print("- Schema-invalid responses are rejected instead of being silently repaired into potentially fabricated analysis.")
     print("- Run a separate live or curated-output rubric before making claims about analysis quality.")
 
     return 0 if all(item["completed"] for item in results) and not schema_failures and not retry_failures else 1
