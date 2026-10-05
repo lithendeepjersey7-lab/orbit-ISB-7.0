@@ -532,6 +532,32 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
     ):
         failures.append("retry: overloaded primary did not fail over to the stable model")
 
+    # A 429 quota response is not retried on that same model, but a single
+    # call to an alternate model may have a separate per-model rate budget.
+    quota_error = FakeApiError(429, "RESOURCE_EXHAUSTED model request quota")
+    quota_primary_calls = []
+
+    def primary_429(prompt):
+        quota_primary_calls.append(prompt)
+        raise quota_error
+
+    fallback_calls.clear()
+    with patch.object(gemini_retry.time, "sleep") as sleep:
+        recovered = gemini_retry.invoke_with_retry(
+            SimpleNamespace(model=primary_llm.model, invoke=primary_429),
+            "quota prompt",
+            "Test agent",
+            max_attempts=2,
+            fallback_factory=lambda primary: fallback_llm,
+        )
+    if (
+        recovered != "fallback reply"
+        or len(quota_primary_calls) != 1
+        or fallback_calls != ["quota prompt"]
+        or sleep.called
+    ):
+        failures.append("retry: quota-limited model was retried or alternate-model fallback failed")
+
     # The fallback is also bounded, and errors explain both failed models.
     fallback_calls.clear()
 

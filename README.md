@@ -203,7 +203,7 @@ These tests verify technical integration and response contracts. They do not mea
 
 ## Reliability & Error Handling
 
-- **Transient failures:** `gemini_retry.py` retries temporary Gemini `503 UNAVAILABLE` errors once, then fails over from Gemini 3.7 Flash to the stable Gemini 2.5 Flash model with one retry. This keeps outages from consuming the full request window; other error types are not retried.
+- **Transient failures:** `gemini_retry.py` retries temporary Gemini `503 UNAVAILABLE` errors once, then fails over from Gemini 3.7 Flash to the stable Gemini 2.5 Flash model. A model-specific `429 RESOURCE_EXHAUSTED` is sent to the alternate model once without retrying the limited model. This keeps outages from consuming the full request window; other error types are not retried. Project-wide quota exhaustion still requires quota reset or billing/API-key changes in Google AI Studio.
 - **Non-retryable failures:** Authentication errors, invalid requests, and quota errors are not repeatedly retried.
 
 ---
