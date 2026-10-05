@@ -395,6 +395,14 @@ def _run_response_validation_checks():
         if not response.get(name) or not response[name].get("analysis_mode"):
             failures.append(name + " stage disappeared when search returned no evidence")
 
+    repository_root = Path(__file__).resolve().parents[1]
+    render_config = (repository_root / "render.yaml").read_text(encoding="utf-8")
+    env_example = (repository_root / "backend" / ".env.example").read_text(encoding="utf-8")
+    if "key: GOOGLE_API_KEY" not in render_config or "GOOGLE_API_KEY=" not in env_example:
+        failures.append("Gemini GOOGLE_API_KEY is missing from Render or local environment configuration")
+    if "key: GEMINI_API_KEY" in render_config or "GEMINI_API_KEY=" in env_example:
+        failures.append("Gemini environment configuration uses an unsupported key name")
+
     return failures
 
 

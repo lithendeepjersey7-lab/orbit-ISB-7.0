@@ -164,6 +164,10 @@ uvicorn main:app --reload
 - Local backend: http://127.0.0.1:8000
 - Swagger documentation: http://127.0.0.1:8000/docs
 
+For the Render deployment, set the secret environment variable as
+`GOOGLE_API_KEY` (the name read by `ChatGoogleGenerativeAI`), not
+`GEMINI_API_KEY`. Never put the key in source control or send it in chat.
+
 ### Frontend Setup
 
 In a second terminal, serve the static frontend with Python's built-in server:
