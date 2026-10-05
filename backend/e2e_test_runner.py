@@ -473,6 +473,7 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
             self.code = code
 
     unavailable = FakeApiError(503, "UNAVAILABLE. This model is currently experiencing high demand.")
+    internal = FakeApiError(500, "INTERNAL. Temporary internal service error.")
 
     # 1. A 503 followed by a good reply is retried once and succeeds.
     calls = []
@@ -500,6 +501,18 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
                 failures.append("retry: persistent 503 was not bounded to MAX_ATTEMPTS")
     if "503" not in (gemini_retry.take_failure() or ""):
         failures.append("retry: exhausted retries lost the original 503 detail")
+
+    calls.clear()
+    def intermittent_internal(prompt):
+        calls.append(prompt)
+        if len(calls) == 1:
+            raise internal
+        return "recovered after internal error"
+    with patch.object(gemini_retry.time, "sleep"):
+        if gemini_retry.invoke_with_retry(
+            SimpleNamespace(invoke=intermittent_internal), "p", "Test agent"
+        ) != "recovered after internal error" or len(calls) != 2:
+            failures.append("retry: transient Gemini 500 INTERNAL was not retried once")
 
     # 2b. When the primary Gemini 3.7 model remains overloaded, a configured
     #     stable Flash fallback gets the same prompt and can recover the call.
@@ -621,17 +634,25 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
         patch.object(pipeline_module, "search_idea", return_value=fixtures["search"]),
         patch.object(market_module.llm, "invoke", side_effect=make_llm_stub(unavailable)),
         patch.object(competitor_module.llm, "invoke", side_effect=make_llm_stub(unavailable)),
+        patch.object(pipeline_module, "analyse_swot", return_value=fixtures["swot"]) as swot_call,
+        patch.object(pipeline_module, "recommend_mvp", return_value=fixtures["mvp"]) as mvp_call,
+        patch.object(pipeline_module, "develop_gtm_strategy", return_value=fixtures["gtm"]) as gtm_call,
     ):
         result = app_module.run_pipeline("retry test idea")
     errors = result.get("errors", [])
-    if result.get("market") is not None or result.get("swot") or result.get("mvp") or result.get("gtm"):
-        failures.append("pipeline: missing market must leave market/swot/mvp/gtm empty (no fabrication)")
+    if result.get("market") is not None:
+        failures.append("pipeline: missing market unexpectedly returned data")
     if result.get("competitors") != fixtures["competitors"]:
         failures.append("pipeline: the available competitor result was not returned")
     if not any(e.startswith("Market agent failed:") and "503" in e for e in errors):
         failures.append("pipeline: market 503 was not reported with its real cause: {}".format(errors))
-    if not any(e.startswith("SWOT agent skipped") for e in errors):
-        failures.append("pipeline: downstream skip was not reported")
+    if result.get("swot") is None or result.get("mvp") is None or result.get("gtm") is None:
+        failures.append("pipeline: downstream agents did not use available competitor context")
+    if result.get("market") is None and result.get("competitors"):
+        if swot_call.call_args.args[1] != {} or mvp_call.call_args.args[1] != {}:
+            failures.append("pipeline: unavailable market context was not represented as empty")
+        if gtm_call.call_args.args[1] != {}:
+            failures.append("pipeline: unavailable market context was not represented in GTM input")
 
     # 6. Pipeline: a model reply that is not usable JSON keeps the old message.
     with (

@@ -95,12 +95,12 @@ def competitor_node(state: State) -> dict:
 
 def swot_node(state: State) -> dict:
     """Run SWOT analysis after both Milestone 2 analyses are complete."""
-    if not state.get("market") or not state.get("competitors"):
-        return {"swot": None, "errors": ["SWOT agent skipped: market or competitor analysis unavailable"]}
+    if not state.get("market") and not state.get("competitors"):
+        return {"swot": None, "errors": ["SWOT agent skipped: no market or competitor analysis available"]}
     result = analyse_swot(
         state["idea"],
-        state["market"],
-        state["competitors"],
+        state.get("market") or {},
+        state.get("competitors") or {},
     )
     if result is None:
         return {"swot": None, "errors": [_agent_failure("SWOT agent")]}
@@ -109,12 +109,12 @@ def swot_node(state: State) -> dict:
 
 def mvp_node(state: State) -> dict:
     """Recommend a minimal first version from the existing analyses."""
-    if not state.get("market") or not state.get("competitors"):
-        return {"mvp": None, "errors": ["MVP agent skipped: market or competitor analysis unavailable"]}
+    if not state.get("market") and not state.get("competitors"):
+        return {"mvp": None, "errors": ["MVP agent skipped: no market or competitor analysis available"]}
     result = recommend_mvp(
         state["idea"],
-        state["market"],
-        state["competitors"],
+        state.get("market") or {},
+        state.get("competitors") or {},
         state.get("swot"),
     )
     if result is None:
@@ -124,13 +124,13 @@ def mvp_node(state: State) -> dict:
 
 def gtm_node(state: State) -> dict:
     """Create a GTM strategy after the existing analyses and MVP stage."""
-    if not state.get("market") or not state.get("competitors") or not state.get("swot"):
-        return {"gtm": None, "errors": ["GTM agent skipped: market, competitor, or SWOT analysis unavailable"]}
+    if not state.get("market") and not state.get("competitors") and not state.get("swot"):
+        return {"gtm": None, "errors": ["GTM agent skipped: no upstream analysis available"]}
     result = develop_gtm_strategy(
         state["idea"],
-        state["market"],
-        state["competitors"],
-        state["swot"],
+        state.get("market") or {},
+        state.get("competitors") or {},
+        state.get("swot") or {},
     )
     if result is None:
         return {"gtm": None, "errors": [_agent_failure("GTM agent")]}

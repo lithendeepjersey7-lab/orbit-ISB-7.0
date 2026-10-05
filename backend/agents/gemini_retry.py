@@ -1,4 +1,4 @@
-"""Small, bounded retry for temporary Gemini outages (503 UNAVAILABLE).
+"""Small, bounded retry for temporary Gemini outages (503 / 500 INTERNAL).
 
 Every Gemini-backed agent calls the model through invoke_with_retry() instead
 of llm.invoke() directly, so the retry rules live in exactly one place.
@@ -8,7 +8,7 @@ experiencing high demand." That is a temporary availability problem, not a bug
 in the agent, and one more attempt a few seconds later often works.
 
 Rules:
-- Only 503 / UNAVAILABLE is retried. Auth, bad request, not found and
+- Only transient 503 / UNAVAILABLE and 500 / INTERNAL are retried. Auth, bad request, not found and
   unknown errors are NOT retried: repeating them cannot help.
 - 429 is NOT retried. It can mean the quota is exhausted, and hammering a
   quota limit only wastes time.
@@ -40,13 +40,24 @@ _fallback_llm = None
 
 
 def is_transient(error):
-    """True only for a temporary Gemini availability error (503 / UNAVAILABLE)."""
+    """True only for temporary Gemini overload or internal-service failures."""
     for attribute in ("code", "status_code"):
         value = getattr(error, attribute, None)
         if isinstance(value, int):
-            return value == 503
-    text = str(error)
-    return "503" in text and "UNAVAILABLE" in text.upper()
+            if value == 503:
+                return True
+            if value == 500:
+                return "INTERNAL" in str(error).upper()
+            return False
+    text = str(error).upper()
+    return ("503" in text and "UNAVAILABLE" in text) or (
+        "500" in text and "INTERNAL" in text
+    )
+
+
+def transient_label(error):
+    """Short provider status label for retry logs."""
+    return "500 INTERNAL" if "500" in str(error) else "503 UNAVAILABLE"
 
 
 def is_model_quota_limited(error):
@@ -80,8 +91,8 @@ def _invoke_model(llm, prompt, agent_name, max_attempts):
                 raise
             delay = BASE_DELAY_SECONDS * (2 ** (attempt - 1)) + random.uniform(0, 1)
             print(
-                "%s: Gemini 503 UNAVAILABLE on attempt %d of %d, retrying in %.1fs"
-                % (agent_name, attempt, max_attempts, delay)
+                "%s: Gemini %s on attempt %d of %d, retrying in %.1fs"
+                % (agent_name, transient_label(error), attempt, max_attempts, delay)
             )
             time.sleep(delay)
 
@@ -114,9 +125,10 @@ def invoke_with_retry(
 ):
     """Invoke Gemini with bounded retries and a stable-model overload fallback.
 
-    Only 503 errors trigger retries/failover. After the primary model exhausts
-    its retry budget, supported Gemini 3.7 Flash callers try Gemini 3.8 Flash
-    with the same prompt. Other failures are re-raised without extra calls.
+    Transient 503/500 errors trigger retries; 429 quota errors skip retrying
+    the primary and immediately try the alternate model. After the primary
+    model exhausts its retry budget, supported Gemini 3.7 Flash callers try
+    Gemini 3.8 Flash with the same prompt. Other failures are re-raised.
     """
     _local.failure = None
     try:
