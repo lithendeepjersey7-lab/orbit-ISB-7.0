@@ -49,7 +49,11 @@ class AdvisorRequest(BaseModel):
 
 @app.get("/")
 def home():
-    return {"message": "Litmus - AI Startup Idea Validator API", "milestone": 4}
+    return {
+        "message": "Litmus - AI Startup Idea Validator API",
+        "milestone": 4,
+        "gemini_failover_model": "gemini-2.5-flash",
+    }
 
 
 @app.post("/validate")

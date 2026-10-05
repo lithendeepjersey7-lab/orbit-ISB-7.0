@@ -89,7 +89,8 @@ def _invoke_model(llm, prompt, agent_name, max_attempts):
 def _create_fallback_model(primary):
     """Create/cache the stable Flash fallback only when primary is overloaded."""
     global _fallback_llm
-    if getattr(primary, "model", None) != "gemini-3.7-flash":
+    primary_name = str(getattr(primary, "model", "")).rstrip("/").split("/")[-1]
+    if primary_name != "gemini-3.7-flash":
         return None
     if _fallback_llm is None:
         with _fallback_lock:
@@ -126,7 +127,18 @@ def invoke_with_retry(
             _local.failure = "Gemini failed (%s)" % describe_error(primary_error)
             raise
 
-    fallback = fallback_factory(llm)
+    try:
+        fallback = fallback_factory(llm)
+    except Exception as error:
+        _local.failure = (
+            "Gemini primary model failed (%s); fallback %s could not be configured (%s)"
+            % (
+                describe_error(last_primary_error),
+                FALLBACK_MODEL,
+                describe_error(error),
+            )
+        )
+        raise
     if fallback is None:
         suffix = " after %d attempts" % max_attempts
         _local.failure = "Gemini temporarily unavailable%s (%s)" % (
