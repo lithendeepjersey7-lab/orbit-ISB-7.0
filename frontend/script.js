@@ -1,11 +1,9 @@
-// Opened from disk or localhost, talk to the local backend. Served from
-// Vercel, talk to Render. This means the file is never edited back and forth
-// before a push, which is the usual way a deploy ends up pointing at
-// localhost.
-const LOCAL = ["localhost", "127.0.0.1", ""].includes(location.hostname);
+// Localhost previews use the hosted API by default so a static demo works
+// without requiring a separate local backend. Opt into localhost:8000 with
+// ?api=local when intentionally developing against a local backend.
 let latestValidation = null;
 
-const API_URL = LOCAL
+const API_URL = new URLSearchParams(location.search).get("api") === "local"
   ? "http://127.0.0.1:8000"
   : "https://orbit-isb-7-0-staging.onrender.com";
 
@@ -13,8 +11,19 @@ const ideaBox = document.getElementById("idea");
 const submitButton = document.getElementById("submit");
 const statusLine = document.getElementById("status");
 const resultsBox = document.getElementById("results");
+const ideaForm = document.getElementById("idea-form");
 
-submitButton.addEventListener("click", validateIdea);
+ideaForm.addEventListener("submit", function (event) {
+  event.preventDefault();
+  validateIdea();
+});
+
+document.querySelectorAll(".example-chip").forEach(function (button) {
+  button.addEventListener("click", function () {
+    ideaBox.value = button.dataset.idea;
+    ideaBox.focus();
+  });
+});
 
 async function validateIdea() {
   const idea = ideaBox.value.trim();
@@ -22,21 +31,23 @@ async function validateIdea() {
   if (idea.length < 10) {
     statusLine.textContent = "Please write a bit more about your idea.";
     statusLine.className = "error";
+    ideaBox.focus();
     return;
   }
 
   statusLine.className = "";
   resultsBox.innerHTML = "";
   submitButton.disabled = true;
+  submitButton.querySelector("span:first-child").textContent = "Validating…";
 
   // A full run takes about a minute on Render's free tier, which gives the
   // backend a tenth of a CPU. Without these updates the page looks frozen,
   // so say which agent is working rather than showing one static message.
   const stages = [
-    [0, "Searching the web..."],
-    [4, "Reading the results. The market and competitor agents are running..."],
-    [25, "Running SWOT, MVP, and go-to-market analyses..."],
-    [75, "The analysis is taking longer than usual; the pipeline is still running..."],
+    [0, "Searching the web…"],
+    [4, "Reading the results. Market and competitor analysis is running…"],
+    [25, "Running SWOT, MVP, and go-to-market analysis…"],
+    [75, "This is taking longer than usual; the pipeline is still running…"],
   ];
   const startedAt = Date.now();
   statusLine.textContent = stages[0][1];
@@ -57,7 +68,11 @@ async function validateIdea() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ idea: idea }),
     });
-    data = await response.json();
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      throw new Error("The validation service returned an unreadable response. Please try again.");
+    }
     if (!response.ok) {
       throw new Error(
         typeof data.detail === "string"
@@ -67,48 +82,78 @@ async function validateIdea() {
     }
   } catch (error) {
     clearInterval(ticker);
-    statusLine.textContent =
-      error.message || "Could not reach the API. Is the backend running?";
-    statusLine.className = "error";
+    showApiError(error, "validation");
     submitButton.disabled = false;
+    submitButton.querySelector("span:first-child").textContent = "Validate This Idea";
     return;
   }
 
   clearInterval(ticker);
-  showResults(data);
-  statusLine.textContent =
-    data.results.length + " sources found in " + data.elapsed_seconds + "s";
-  submitButton.disabled = false;
+  try {
+    if (showResults(data)) {
+      const coverage = getAnalysisCoverage(data);
+      statusLine.textContent =
+        "Validation ready · " + (Array.isArray(data.results) ? data.results.length : 0) +
+        " sources · " + coverage.score + "% analysis coverage";
+      resultsBox.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start"
+      });
+    }
+  } catch (error) {
+    statusLine.textContent = "The validation completed, but its results could not be displayed.";
+    statusLine.className = "error";
+    console.error("Could not render validation results:", error);
+  } finally {
+    submitButton.disabled = false;
+    submitButton.querySelector("span:first-child").textContent = "Validate This Idea";
+  }
+}
+
+function showApiError(error, operation) {
+  statusLine.replaceChildren();
+  statusLine.className = "error api-error";
+  const message = document.createElement("span");
+  const networkFailure = error instanceof TypeError ||
+    (error && /failed to fetch|networkerror|load failed/i.test(error.message || ""));
+  if (networkFailure) {
+    message.textContent =
+      "Couldn’t connect to the " + (operation || "validation") +
+      " API at " + API_URL + ". Check your internet connection or the backend status.";
+  } else {
+    message.textContent = error.message || "The " + (operation || "validation") + " request failed.";
+  }
+  statusLine.appendChild(message);
+
+  if (networkFailure) {
+    const healthLink = document.createElement("a");
+    healthLink.href = API_URL + "/";
+    healthLink.target = "_blank";
+    healthLink.rel = "noopener noreferrer";
+    healthLink.textContent = " Check API status";
+    statusLine.appendChild(healthLink);
+    if (new URLSearchParams(location.search).get("api") !== "local") {
+      const localHint = document.createElement("span");
+      localHint.textContent = " · For a running local backend, add ?api=local to this page’s URL.";
+      statusLine.appendChild(localHint);
+    }
+  }
 }
 
 function showResults(data) {
   if (!data || typeof data !== "object") {
     statusLine.textContent = "The validation service returned an invalid response.";
     statusLine.className = "error";
-    submitButton.disabled = false;
-    return;
+    return false;
   }
-  if (data.summary) {
-    const summary = document.createElement("div");
-    summary.className = "summary";
-    summary.textContent = data.summary;
-    resultsBox.appendChild(summary);
-  }
+  resultsBox.appendChild(buildValidationOverview(data));
+  resultsBox.appendChild(buildSectionNav(data));
 
   if (data.errors && data.errors.length) {
     resultsBox.appendChild(buildErrors(data.errors));
   }
 
   latestValidation = data;
-
-  const reportButton = document.createElement("button");
-  reportButton.type = "button";
-  reportButton.className = "download-report";
-  reportButton.textContent = "Download PDF validation report";
-  reportButton.addEventListener("click", () => downloadReport(data, reportButton));
-  resultsBox.appendChild(reportButton);
-
-  resultsBox.appendChild(buildAgentRun(data));
 
   // The analysis comes before the raw sources. A founder wants the conclusion
   // first and the evidence underneath it, not the other way round.
@@ -118,6 +163,18 @@ function showResults(data) {
   if (data.mvp) resultsBox.appendChild(buildMvp(data.mvp));
   if (data.gtm) resultsBox.appendChild(buildGtm(data.gtm));
   resultsBox.appendChild(buildAdvisor(data));
+
+  const evidence = document.createElement("details");
+  evidence.className = "source-evidence";
+  evidence.id = "sources";
+  const evidenceHeading = document.createElement("summary");
+  evidenceHeading.textContent = "Search evidence & sources";
+  const evidenceCount = document.createElement("span");
+  evidenceCount.className = "source-evidence__count";
+  const resultCount = Array.isArray(data.results) ? data.results.length : 0;
+  evidenceCount.textContent = resultCount + (resultCount === 1 ? " source" : " sources");
+  evidenceHeading.appendChild(evidenceCount);
+  evidence.appendChild(evidenceHeading);
 
   const queries = document.createElement("div");
   queries.className = "queries";
@@ -133,11 +190,16 @@ function showResults(data) {
     list.appendChild(item);
   }
   queries.appendChild(list);
-  resultsBox.appendChild(queries);
+  if ((data.queries || []).length) evidence.appendChild(queries);
 
   // Show the sources grouped under the angle that found them
-  for (const category of data.categories || []) {
-    const group = (data.results || []).filter((r) => r.category === category);
+  const categoryNames = Array.isArray(data.categories) ? data.categories.slice() : [];
+  for (const result of Array.isArray(data.results) ? data.results : []) {
+    const category = result.category || "Other sources";
+    if (!categoryNames.includes(category)) categoryNames.push(category);
+  }
+  for (const category of categoryNames) {
+    const group = (Array.isArray(data.results) ? data.results : []).filter((r) => (r.category || "Other sources") === category);
     if (group.length === 0) continue;
 
     const label = document.createElement("h2");
@@ -148,60 +210,165 @@ function showResults(data) {
     count.textContent = group.length + (group.length === 1 ? " source" : " sources");
     label.appendChild(count);
 
-    resultsBox.appendChild(label);
+    evidence.appendChild(label);
 
     for (const result of group) {
-      resultsBox.appendChild(buildCard(result));
+      evidence.appendChild(buildCard(result));
     }
   }
+  if (!resultCount && !(data.queries || []).length) {
+    const empty = document.createElement("p");
+    empty.className = "source-evidence__empty";
+    empty.textContent = "No web sources were returned in this validation run.";
+    evidence.appendChild(empty);
+  }
+  resultsBox.appendChild(evidence);
+  return true;
 }
 
-function buildAgentRun(data) {
+function getAnalysisCoverage(data) {
+  const unavailableModes = new Set([
+    "analysis_unavailable",
+    "evidence_summary",
+    "conservative_fallback",
+    "advisor_unavailable"
+  ]);
+  const dimensions = ["market", "competitors", "swot", "mvp", "gtm"];
+  const completed = dimensions.filter(function (key) {
+    const section = data && data[key];
+    return Boolean(section) && !unavailableModes.has(section.analysis_mode);
+  }).length;
+  return { completed: completed, total: dimensions.length, score: Math.round(100 * completed / dimensions.length) };
+}
+
+function buildValidationOverview(data) {
+  const coverage = getAnalysisCoverage(data);
+  const results = Array.isArray(data.results) ? data.results : [];
   const stats = data.stats || {};
-  const panel = document.createElement("div");
-  panel.className = "agentrun";
+  const card = document.createElement("section");
+  card.className = "validation-overview";
+  card.setAttribute("aria-labelledby", "validation-title");
 
-  const heading = document.createElement("h3");
-  heading.textContent = "Agent run";
-  panel.appendChild(heading);
+  const intro = document.createElement("div");
+  intro.className = "validation-overview__intro";
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "step-label";
+  eyebrow.textContent = coverage.completed === coverage.total ? "VALIDATION COMPLETE" : "VALIDATION SNAPSHOT";
+  intro.appendChild(eyebrow);
 
-  const row = document.createElement("div");
-  row.className = "stats";
+  const title = document.createElement("h2");
+  title.id = "validation-title";
+  title.tabIndex = -1;
+  title.textContent = data.idea || "Your startup idea";
+  intro.appendChild(title);
 
-  const tiles = [
-    [5, "Analysis agents"],
-    [stats.searches_run, "Searches, in parallel"],
-    [stats.duplicates_removed, "Duplicates removed"],
-    [stats.distinct_sites, "Distinct sites"],
+  const summary = document.createElement("p");
+  summary.className = "validation-overview__summary";
+  summary.textContent = data.summary || "Your research and analysis are ready to review.";
+  intro.appendChild(summary);
+
+  const actions = document.createElement("div");
+  actions.className = "validation-overview__actions";
+  const reportButton = document.createElement("button");
+  reportButton.type = "button";
+  reportButton.className = "download-report";
+  reportButton.textContent = "Download PDF report";
+  reportButton.addEventListener("click", function () {
+    downloadReport(data, reportButton);
+  });
+  actions.appendChild(reportButton);
+
+  const advisorLink = document.createElement("a");
+  advisorLink.className = "overview-link";
+  advisorLink.href = "#advisor";
+  advisorLink.textContent = "Ask the advisor";
+  actions.appendChild(advisorLink);
+  intro.appendChild(actions);
+  card.appendChild(intro);
+
+  const metrics = document.createElement("div");
+  metrics.className = "overview-metrics";
+  const metricRows = [
+    {
+      value: coverage.score + "%",
+      label: "AI analysis coverage",
+      detail: coverage.completed + " of " + coverage.total + " analysis sections completed",
+      progress: coverage.score
+    },
+    {
+      value: String(results.length),
+      label: "Search sources",
+      detail: (stats.distinct_sites || 0) + " distinct sites"
+    },
+    {
+      value: typeof stats.searches_run === "number" ? String(stats.searches_run) : "—",
+      label: "Search queries",
+      detail: "Run for this idea"
+    },
+    {
+      value: typeof data.elapsed_seconds === "number" ? data.elapsed_seconds + "s" : "—",
+      label: "Run time",
+      detail: "Across the validation pipeline"
+    }
   ];
-
-  for (const [value, label] of tiles) {
+  for (const metric of metricRows) {
     const tile = document.createElement("div");
-    tile.className = "stat";
-
-    const v = document.createElement("span");
-    v.className = "stat__value";
-    v.textContent = value;
-
-    const l = document.createElement("span");
-    l.className = "stat__label";
-    l.textContent = label;
-
-    tile.appendChild(v);
-    tile.appendChild(l);
-    row.appendChild(tile);
+    tile.className = "overview-metric";
+    const value = document.createElement("strong");
+    value.className = "overview-metric__value";
+    value.textContent = metric.value;
+    tile.appendChild(value);
+    const label = document.createElement("span");
+    label.className = "overview-metric__label";
+    label.textContent = metric.label;
+    tile.appendChild(label);
+    const detail = document.createElement("span");
+    detail.className = "overview-metric__detail";
+    detail.textContent = metric.detail;
+    tile.appendChild(detail);
+    if (typeof metric.progress === "number") {
+      const progress = document.createElement("progress");
+      progress.className = "coverage-progress";
+      progress.max = 100;
+      progress.value = metric.progress;
+      progress.setAttribute("aria-label", "AI analysis coverage");
+      tile.appendChild(progress);
+    }
+    metrics.appendChild(tile);
   }
+  card.appendChild(metrics);
 
-  panel.appendChild(row);
+  const note = document.createElement("p");
+  note.className = "coverage-note";
+  note.textContent = "Coverage describes completed AI analyses, not the likelihood that the startup will succeed.";
+  card.appendChild(note);
+  return card;
+}
 
-  const foot = document.createElement("p");
-  foot.className = "agentrun__foot";
-  foot.textContent =
-    (stats.shown || 0) + " sources gathered and analysed across the validation pipeline in " +
-    data.elapsed_seconds + "s total";
-  panel.appendChild(foot);
-
-  return panel;
+function buildSectionNav(data) {
+  const sections = [
+    ["market", "Market", data.market],
+    ["competitors", "Competitors", data.competitors],
+    ["swot", "SWOT & risks", data.swot],
+    ["mvp", "MVP", data.mvp],
+    ["gtm", "Go-to-market", data.gtm],
+    ["advisor", "Advisor", true],
+    ["sources", "Sources", true]
+  ].filter(function (section) { return Boolean(section[2]); });
+  const nav = document.createElement("nav");
+  nav.className = "result-nav";
+  nav.setAttribute("aria-label", "Jump to a validation section");
+  const label = document.createElement("span");
+  label.className = "result-nav__label";
+  label.textContent = "IN THIS REPORT";
+  nav.appendChild(label);
+  for (const [id, title] of sections) {
+    const link = document.createElement("a");
+    link.href = "#" + id;
+    link.textContent = title;
+    nav.appendChild(link);
+  }
+  return nav;
 }
 
 function buildCard(result) {
@@ -264,6 +431,7 @@ function labelled(label, value) {
 function buildMarket(market) {
   const box = document.createElement("section");
   box.className = "analysis";
+  box.id = "market";
 
   const title = document.createElement("h2");
   title.textContent = "Market opportunity";
@@ -359,6 +527,7 @@ function appendResearchLeads(box, headingText, leads) {
 function buildCompetitors(data) {
   const box = document.createElement("section");
   box.className = "analysis";
+  box.id = "competitors";
 
   const title = document.createElement("h2");
   title.textContent = "Competitor landscape";
@@ -454,14 +623,19 @@ function addAskButton(box, title) {
     if (!advisor) return;
     advisor.value = "Explain the " + title.toLowerCase() + " findings and their implications.";
     advisor.focus();
-    advisor.scrollIntoView({ behavior: "smooth", block: "center" });
-    document.querySelector(".advisor > button").click();
+    advisor.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "center"
+    });
+    document.querySelector(".advisor__form").requestSubmit();
   });
   box.appendChild(ask);
 }
 
 function buildSection(title, data) {
   const box = buildGenericAnalysis(title, data);
+  box.id = title === "SWOT and execution risks" ? "swot" :
+    title === "MVP recommendations" ? "mvp" : "gtm";
   addAskButton(box, title);
   return box;
 }
@@ -485,6 +659,13 @@ function buildGenericAnalysis(title, data) {
   const heading = document.createElement("h2");
   heading.textContent = title;
   box.appendChild(heading);
+
+  if (data && typeof data === "object" && data.analysis_mode === "fallback") {
+    const notice = document.createElement("p");
+    notice.className = "analysis-status";
+    notice.textContent = data.analysis_note || "Conservative fallback; model-generated analysis was unavailable.";
+    box.appendChild(notice);
+  }
 
   box.appendChild(renderAnalysisValue(data));
 
@@ -515,6 +696,7 @@ function renderAnalysisValue(value) {
 
   if (typeof value === "object") {
     for (const [key, item] of Object.entries(value)) {
+      if (key === "analysis_mode" || key === "analysis_note") continue;
       if (item === null || item === undefined || item === "") continue;
 
       const heading = document.createElement("h3");
@@ -534,35 +716,40 @@ function renderAnalysisValue(value) {
 function buildAdvisor(data) {
   const box = document.createElement("section");
   box.className = "analysis advisor";
+  box.id = "advisor";
 
+  const header = document.createElement("div");
+  header.className = "advisor__header";
   const heading = document.createElement("h2");
-  heading.textContent = "Conversational Startup Advisor";
-  box.appendChild(heading);
+  heading.textContent = "Talk through your next move";
+  header.appendChild(heading);
+  const sourceHint = document.createElement("span");
+  sourceHint.className = "source-label source-label--report";
+  sourceHint.textContent = "Grounded in this report";
+  header.appendChild(sourceHint);
+  box.appendChild(header);
 
   const description = document.createElement("p");
+  description.className = "advisor__description";
   description.textContent =
-    "Ask a follow-up question about this startup validation.";
+    "Ask a follow-up. The advisor uses this report and cites live search when relevant.";
   box.appendChild(description);
 
-  const input = document.createElement("textarea");
-  input.rows = 3;
-  input.placeholder =
-    "Example: What is the biggest risk for this startup?";
-  box.appendChild(input);
-
-  const button = document.createElement("button");
-  button.type = "button";
-  button.textContent = "Ask Advisor";
-  box.appendChild(button);
-
-  const answer = document.createElement("div");
-  answer.className = "advisor-answer";
-  box.appendChild(answer);
   const history = [];
+  const transcript = document.createElement("div");
+  transcript.className = "advisor-transcript";
+  transcript.setAttribute("aria-label", "Advisor conversation");
+  transcript.setAttribute("aria-live", "polite");
+  transcript.setAttribute("aria-relevant", "additions");
+  const welcomeText =
+    "I can help interpret these findings, compare priorities, or turn them into a concrete next step. Try a question below.";
+  transcript.appendChild(buildAdvisorMessage("assistant", welcomeText));
+  box.appendChild(transcript);
+
   const suggested = document.createElement("div");
   suggested.className = "suggested-questions";
   const suggestedHeading = document.createElement("p");
-  suggestedHeading.textContent = "Suggested questions";
+  suggestedHeading.textContent = "Good questions to start with";
   suggested.appendChild(suggestedHeading);
   for (const question of [
     "What is the highest-priority risk and how should we mitigate it?",
@@ -575,23 +762,50 @@ function buildAdvisor(data) {
     suggestion.textContent = question;
     suggestion.addEventListener("click", function () {
       input.value = question;
-      button.click();
+      form.requestSubmit();
     });
     suggested.appendChild(suggestion);
   }
-  box.insertBefore(suggested, input);
+  box.appendChild(suggested);
 
-  button.addEventListener("click", async function () {
+  const form = document.createElement("form");
+  form.className = "advisor__form";
+  const input = document.createElement("textarea");
+  input.id = "advisor-question";
+  input.name = "question";
+  input.rows = 2;
+  input.autocomplete = "off";
+  input.placeholder = "Ask about a risk, feature, customer, or next step…";
+  input.setAttribute("aria-label", "Ask the startup advisor a question");
+  form.appendChild(input);
+  const button = document.createElement("button");
+  button.type = "submit";
+  button.textContent = "Send question";
+  form.appendChild(button);
+  box.appendChild(form);
+
+  input.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  form.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    if (button.disabled) return;
     const question = input.value.trim();
-
     if (!question) {
-      answer.textContent = "Please enter a question.";
+      input.focus();
       return;
     }
 
     button.disabled = true;
-    answer.textContent = "Advisor is thinking...";
-    let serverMessage = "";
+    const typing = document.createElement("p");
+    typing.className = "advisor-typing";
+    typing.setAttribute("role", "status");
+    typing.textContent = "Advisor is thinking…";
+    transcript.appendChild(typing);
 
     try {
       const response = await fetch(API_URL + "/advisor", {
@@ -612,72 +826,111 @@ function buildAdvisor(data) {
         })
       });
 
+      let result;
+      try {
+        result = await response.json();
+      } catch (parseError) {
+        throw new Error("The advisor returned an unreadable response. Please try again.");
+      }
       if (!response.ok) {
-        // The backend explains why (for example Gemini unavailable). Show that
-        // instead of claiming the server could not be reached.
-        try {
-          const body = await response.json();
-          if (typeof body.detail === "string") {
-            serverMessage = body.detail;
-          } else if (Array.isArray(body.detail)) {
-            serverMessage = body.detail
-              .map((item) => item.msg || item.type || "")
-              .filter(Boolean)
-              .join("; ");
-          }
-        } catch (parseError) {}
-        throw new Error("Advisor request failed");
+        const detail = result && result.detail;
+        const message = typeof detail === "string"
+          ? detail
+          : Array.isArray(detail)
+            ? detail.map((item) => item.msg || item.type || "").filter(Boolean).join("; ")
+            : "Advisor request failed (" + response.status + ").";
+        throw new Error(message);
       }
 
-      const result = await response.json();
-
-      answer.textContent =
-        result.answer || "The advisor could not provide an answer.";
-      if (result.has_sufficient_context === false && result.missing_context.length) {
-        const missing = document.createElement("p");
-        missing.className = "advisor-missing";
-        missing.textContent = "Needs validation: " + result.missing_context.join(", ");
-        answer.appendChild(missing);
-      }
-      if (result.citations && result.citations.length) {
-        const citationList = document.createElement("ul");
-        citationList.className = "citations";
-        for (const citation of result.citations) {
-          const item = document.createElement("li");
-          const label = citation.label || "From report";
-          if (citation.url) {
-            const link = document.createElement("a");
-            link.href = citation.url;
-            link.target = "_blank";
-            link.rel = "noopener noreferrer";
-            link.textContent = label + ": " + citation.title;
-            item.appendChild(link);
-          } else {
-            item.textContent = label + ": " + citation.title;
-          }
-          citationList.appendChild(item);
-        }
-        answer.appendChild(citationList);
-      }
+      const userMessage = buildAdvisorMessage("user", question);
+      const assistantMessage = buildAdvisorMessage("assistant", result.answer || "The advisor could not provide an answer.", result);
+      transcript.removeChild(typing);
+      transcript.appendChild(userMessage);
+      transcript.appendChild(assistantMessage);
       history.push({ role: "user", content: question });
       history.push({ role: "assistant", content: result.answer || "" });
       input.value = "";
     } catch (error) {
-      answer.textContent =
-        serverMessage || "Could not reach the advisor. Please try again.";
+      if (typing.parentNode === transcript) transcript.removeChild(typing);
+      const networkFailure = error instanceof TypeError ||
+        (error && /failed to fetch|networkerror|load failed/i.test(error.message || ""));
+      transcript.appendChild(buildAdvisorError(
+        networkFailure
+          ? "Couldn’t connect to the advisor API at " + API_URL + ". Check API status or try again."
+          : error.message || "The advisor request failed. Please try again."
+      ));
     } finally {
       button.disabled = false;
     }
-
   });
 
   return box;
 }
 
+function buildAdvisorMessage(role, text, result) {
+  const article = document.createElement("article");
+  article.className = "advisor-message advisor-message--" + role;
+  const label = document.createElement("span");
+  label.className = "advisor-message__label";
+  label.textContent = role === "user" ? "You" : "Litmus advisor";
+  article.appendChild(label);
+
+  const content = document.createElement("p");
+  content.className = "advisor-message__content";
+  content.textContent = text;
+  article.appendChild(content);
+
+  if (result && result.has_sufficient_context === false && Array.isArray(result.missing_context) && result.missing_context.length) {
+    const missing = document.createElement("p");
+    missing.className = "advisor-missing";
+    missing.textContent = "Needs more validation: " + result.missing_context.join(", ");
+    article.appendChild(missing);
+  }
+
+  if (result && Array.isArray(result.citations) && result.citations.length) {
+    const citationList = document.createElement("ul");
+    citationList.className = "citations";
+    for (const citation of result.citations) {
+      if (!citation || typeof citation !== "object") continue;
+      const item = document.createElement("li");
+      item.className = "citation-item";
+      const labelText = citation.label || (citation.url ? "From live search" : "From report");
+      const titleText = citation.title || "Supporting source";
+      if (citation.url) {
+        const link = document.createElement("a");
+        link.href = citation.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = labelText + ": " + titleText;
+        item.appendChild(link);
+      } else {
+        item.textContent = labelText + ": " + titleText;
+      }
+      citationList.appendChild(item);
+    }
+    article.appendChild(citationList);
+  }
+  return article;
+}
+
+function buildAdvisorError(message) {
+  const article = document.createElement("article");
+  article.className = "advisor-message advisor-message--error";
+  article.setAttribute("role", "alert");
+  const label = document.createElement("span");
+  label.className = "advisor-message__label";
+  label.textContent = "Advisor unavailable";
+  const content = document.createElement("p");
+  content.className = "advisor-message__content";
+  content.textContent = message;
+  article.appendChild(label);
+  article.appendChild(content);
+  return article;
+}
 async function downloadReport(data, button) {
   button.disabled = true;
   const original = button.textContent;
-  button.textContent = "Preparing PDF...";
+  button.textContent = "Preparing PDF…";
   try {
     const response = await fetch(API_URL + "/report", {
       method: "POST",
@@ -698,8 +951,7 @@ async function downloadReport(data, button) {
     statusLine.textContent = "Validation PDF downloaded.";
     statusLine.className = "";
   } catch (error) {
-    statusLine.textContent = error.message || "Could not generate the PDF report.";
-    statusLine.className = "error";
+    showApiError(error, "PDF report");
   } finally {
     button.textContent = original;
     button.disabled = false;

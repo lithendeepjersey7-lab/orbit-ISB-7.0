@@ -18,9 +18,11 @@ cd frontend
 python -m http.server 5500
 ```
 
-Open http://127.0.0.1:5500. The frontend uses the local API on localhost. The
-full live flow requires valid API credentials and network access. Do not
-present offline fixtures as live analysis.
+Open http://127.0.0.1:5500. The frontend uses the hosted staging API by default.
+To use the local API instead, open
+http://127.0.0.1:5500/?api=local. The full live flow requires valid API
+credentials and network access. Do not present offline fixtures as live
+analysis.
 
 ## Demo flow
 
