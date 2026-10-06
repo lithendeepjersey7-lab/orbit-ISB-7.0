@@ -154,7 +154,7 @@ def _fallback_recommendation(idea, market, competitors):
             {
                 "phase": "Phase 3 - Expand selectively",
                 "features": [extension_feature],
-                "exit_criteria": "At least one requested integration or automation is repeatedly validated by target users.",
+                "exit_criteria": "Pilot users repeatedly request a deferred capability and can explain its value.",
             },
         ],
         "prioritization_rationale": (

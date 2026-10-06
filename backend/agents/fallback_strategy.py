@@ -5,10 +5,10 @@ _PROFILES = (
     {
         "keys": ("study group", "study-group"),
         "audience": "University students enrolled in challenging courses",
-        "workflow": "find compatible study partners in their course and coordinate a session",
+        "workflow": "find compatible study partners in their course",
         "must": [
-            ("Course and topic selection", "Limits matching to students with the same immediate learning need."),
-            ("Small-group matching by availability", "Tests whether compatible students will meet and study together."),
+            ("Course, topic, and availability preferences", "Defines matching criteria for students with the same immediate learning need."),
+            ("Small-group match suggestions with session coordination", "Tests whether compatible students will meet and study together."),
         ],
         "should": ("Session scheduling and reminders", "Reduces coordination friction after a match."),
         "later": ("Course-level activity insights", "Wait until repeat participation is demonstrated."),

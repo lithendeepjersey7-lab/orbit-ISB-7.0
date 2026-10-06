@@ -431,7 +431,7 @@ def _run_idea_specific_fallback_checks():
     cases = (
         (
             "A mobile app that helps university students find study groups for difficult courses",
-            "Course and topic selection",
+            "Course, topic, and availability preferences",
         ),
         ("AI-powered inventory management for small retailers", "stock"),
         ("Smart meal planning app for busy families", "meal"),
