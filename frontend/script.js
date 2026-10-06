@@ -593,23 +593,65 @@ function buildCompetitors(data) {
 }
 
 function buildErrors(errors) {
-  // The pipeline returns whatever worked plus a list of what did not, so the
-  // page shows partial results instead of a blank screen.
-  const box = document.createElement("div");
-  box.className = "agenterrors";
+  const box = document.createElement("section");
+  box.className = "run-notice";
+  box.setAttribute("aria-label", "Validation limitations");
 
-  const h = document.createElement("h3");
-  h.textContent = "Part of this run did not complete";
-  box.appendChild(h);
+  const hasQuotaError = errors.some(function (error) {
+    return /429|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(error);
+  });
+  const failedAgents = [];
+  for (const agent of ["Market", "Competitor", "SWOT", "MVP", "GTM"]) {
+    if (errors.some((error) => error.startsWith(agent + " agent"))) {
+      failedAgents.push(agent);
+    }
+  }
 
+  const heading = document.createElement("h3");
+  heading.textContent = hasQuotaError
+    ? "AI provider quota reached — partial results are available"
+    : "Some analysis could not be completed";
+  box.appendChild(heading);
+
+  const explanation = document.createElement("p");
+  if (hasQuotaError) {
+    explanation.textContent =
+      "Gemini’s request quota is exhausted. Market and competitor sections may show search leads rather than verified analysis; other affected sections are clearly marked as conservative drafts. Search evidence and the PDF report are still available.";
+  } else {
+    explanation.textContent =
+      "The pipeline returned the sections it could complete. Any unavailable sections are identified below; available research and the PDF report remain usable.";
+  }
+  box.appendChild(explanation);
+
+  if (failedAgents.length) {
+    const affected = document.createElement("p");
+    affected.className = "run-notice__affected";
+    affected.textContent = "Affected agents: " + failedAgents.join(", ") + ".";
+    box.appendChild(affected);
+  }
+
+  if (hasQuotaError) {
+    const help = document.createElement("a");
+    help.href = "https://aistudio.google.com/";
+    help.target = "_blank";
+    help.rel = "noopener noreferrer";
+    help.textContent = "Check Gemini quota and billing ↗";
+    box.appendChild(help);
+  }
+
+  const technical = document.createElement("details");
+  technical.className = "run-notice__details";
+  const summary = document.createElement("summary");
+  summary.textContent = "Technical details";
+  technical.appendChild(summary);
   const list = document.createElement("ul");
   for (const error of errors) {
     const item = document.createElement("li");
     item.textContent = error;
     list.appendChild(item);
   }
-
-  box.appendChild(list);
+  technical.appendChild(list);
+  box.appendChild(technical);
   return box;
 }
 

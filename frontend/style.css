@@ -917,6 +917,23 @@ button:focus-visible, a:focus-visible, textarea:focus-visible,
 .source-evidence__count { color: #a3b2c7; }
 .source-evidence__empty { color: #acb9cc; }
 
+.run-notice {
+  margin: 14px 0 18px;
+  padding: 16px 18px;
+  border: 1px solid #68562f;
+  border-radius: 13px;
+  background: linear-gradient(120deg, #211d17, #171923);
+  color: #e6d5ac;
+}
+.run-notice h3 { margin: 0 0 7px; color: #ffdc91; font-size: 14px; letter-spacing: 0; }
+.run-notice p { margin: 0 0 7px; color: #d2c5a8; font-size: 12px; }
+.run-notice .run-notice__affected { color: #f1d9a6; font-weight: 650; }
+.run-notice > a { display: inline-block; margin: 2px 0 8px; color: #b8d1ff; font-size: 11px; font-weight: 700; }
+.run-notice__details { margin-top: 7px; border-top: 1px solid #4a402d; padding-top: 8px; }
+.run-notice__details > summary { color: #b8a982; cursor: pointer; font-size: 10px; font-weight: 650; }
+.run-notice__details ul { max-height: 180px; overflow: auto; margin: 8px 0 0; padding-left: 17px; }
+.run-notice__details li { margin: 5px 0; color: #c5bba4; font-size: 10px; overflow-wrap: anywhere; }
+
 .skip-link { background: #eaf2ff; color: #0d1b30; }
 ::selection { background: #3668ad; color: #fff; }
 
