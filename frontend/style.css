@@ -903,6 +903,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible,
 .advisor-message__label { color: #9eacc0; }
 .advisor-message--user .advisor-message__label { color: #c0d8ff; }
 .advisor-message__content { color: #dce6f4 !important; }
+.advisor-fallback-note { margin: 8px 0 0; color: #b7c6dc; font-size: 10px !important; }
 .citations a, .citations .citation-item {
   border-color: #34445e;
   background: #142137;
