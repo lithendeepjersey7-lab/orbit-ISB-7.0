@@ -160,7 +160,11 @@ python -m http.server 5500
 
 - Local frontend: http://127.0.0.1:5500
 
-The frontend automatically selects the local backend when running on localhost.
+The frontend uses the hosted staging API by default, including when served on
+localhost. To use a local backend at `http://127.0.0.1:8000`, open the frontend
+with `?api=local` (for example,
+`http://127.0.0.1:5500/?api=local`). This keeps static previews and
+presentations from silently targeting a local API that is not running.
 
 ---
 

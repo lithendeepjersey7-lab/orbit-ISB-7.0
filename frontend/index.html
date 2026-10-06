@@ -3,33 +3,62 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#080d18">
   <title>Litmus - AI Startup Idea Validator</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <main>
-    <header>
-      <p class="eyebrow">Startup validation</p>
-      <h1>Litmus</h1>
+  <a class="skip-link" href="#main">Skip to validator</a>
+  <main id="main" class="app-shell">
+    <header class="page-header">
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true">L</div>
+        <span class="brand-name">Litmus</span>
+        <span class="product-tag">STARTUP VALIDATOR</span>
+      </div>
+      <p class="eyebrow">From rough idea to evidence-backed next steps</p>
+      <h1>Is your next idea <span>worth building?</span></h1>
       <p class="subtitle">
-        Research the market, competitors, risks, MVP scope, and launch strategy.
-        Explore the findings with a cited advisor and download a PDF report.
+        Get a clear view of the market, competitors, risks, MVP, and launch plan.
+        Then ask the advisor what to do next.
       </p>
     </header>
 
-    <!-- The idea submission form -->
-    <section class="card">
-      <label for="idea">Your startup idea</label>
-      <textarea id="idea" rows="4"></textarea>
-      <button id="submit">Validate idea</button>
+    <section class="card idea-card" aria-labelledby="idea-heading">
+      <div class="idea-card__heading">
+        <div>
+          <p class="step-label">01 / START WITH THE IDEA</p>
+          <h2 id="idea-heading">What are you thinking of building?</h2>
+        </div>
+        <span class="private-note">Be specific for better results</span>
+      </div>
+      <form id="idea-form">
+        <label for="idea">Describe the problem, who has it, and your solution</label>
+        <textarea id="idea" name="startup-idea" autocomplete="off" rows="4" minlength="10" required
+          placeholder="Example: An appointment app that helps independent bike shops reduce missed repairs and keep customers updated…"></textarea>
+        <div class="form-footer">
+          <p class="input-hint">A sentence or two is enough to get started.</p>
+          <button id="submit" type="submit">
+            <span>Validate This Idea</span>
+            <span class="button-arrow" aria-hidden="true">→</span>
+          </button>
+        </div>
+      </form>
+      <div class="examples">
+        <span class="examples__label">Need a starting point?</span>
+        <button class="example-chip" type="button" data-idea="An appointment app that helps independent bicycle repair shops schedule repairs and update customers">Bike shop repair app</button>
+        <button class="example-chip" type="button" data-idea="A demand forecasting tool that helps independent grocery stores reduce food waste">Grocery inventory AI</button>
+      </div>
     </section>
 
-    <!-- script.js writes messages here (loading, errors) -->
-    <p id="status"></p>
+    <p id="status" role="status" aria-live="polite" aria-atomic="true"></p>
 
-    <!-- script.js builds the result cards inside here -->
-    <section id="results"></section>
+    <section id="results" aria-label="Validation results"></section>
+    <footer class="app-footer">
+      <span>Built for founders who want evidence before assumptions.</span>
+      <a href="https://github.com/lithendeepjersey7-lab/orbit-ISB-7.0" target="_blank" rel="noopener noreferrer">How Litmus works ↗</a>
+    </footer>
   </main>
 
   <script src="script.js"></script>
