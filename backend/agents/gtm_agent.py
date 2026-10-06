@@ -6,9 +6,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 try:
     from response_validation import invoke_with_json_repair, parse_json_response
     from gemini_retry import invoke_with_retry
+    from fallback_strategy import fallback_profile
 except ImportError:
     from agents.response_validation import invoke_with_json_repair, parse_json_response
     from agents.gemini_retry import invoke_with_retry
+    from agents.fallback_strategy import fallback_profile
 
 load_dotenv()
 
@@ -129,6 +131,7 @@ def build_prompt(idea, market, competitors, swot=None):
 
 
 def _fallback_strategy(idea, market):
+    profile = fallback_profile(idea, market)
     segments = market.get("segments") or []
     segment = next(
         (
@@ -136,11 +139,11 @@ def _fallback_strategy(idea, market):
             for item in segments
             if isinstance(item, dict) and item.get("name", "").strip()
         ),
-        "No validated customer segment is available; identify one through interviews.",
+        profile["audience"],
     )
     return {
         "positioning": {
-            "statement": "Positioning is unvalidated; test a concise promise around the problem stated in the idea: " + idea.strip(),
+            "statement": "For " + segment + ", test a simple promise: " + profile["workflow_text"] + ".",
             "differentiation": "No differentiation claim is supported until competitor evidence and customer feedback are available.",
             "evidence_basis": "Fallback based on the submitted idea only; market and competitor evidence may be incomplete.",
         },
@@ -150,15 +153,15 @@ def _fallback_strategy(idea, market):
             "validation_signal": "Several target users independently describe the problem and agree to test a prototype.",
         }],
         "customer_acquisition_channels": [{
-            "channel": "Direct customer discovery",
-            "rationale": "Direct conversations can test the problem and segment before spending on acquisition.",
-            "low_cost_test": "Recruit a small set of people matching the candidate segment and record their current workaround.",
+            "channel": profile["channels"][0],
+            "rationale": profile["channels"][1],
+            "low_cost_test": "Recruit 10 people matching the candidate segment; document their current workaround and invite qualified participants to a guided pilot.",
         }],
         "first_100_users": {
             "plan": [
-                "Define and verify one initial customer segment through interviews.",
-                "Invite qualified interviewees to a manually supported prototype pilot.",
-                "Ask engaged pilot users for referrals; track activation and repeat use without assuming a conversion rate.",
+                "Interview 10 candidate users in " + segment + " and verify they experience the target problem.",
+                "Recruit the first 10 qualified pilot users through " + profile["channels"][0].lower() + ".",
+                "Iterate with pilot feedback, then request referrals to reach 100 interested users; track activation and repeat use without assuming conversion.",
             ],
             "success_signal": "A repeatable source of qualified pilot users and evidence that users return to complete the core task.",
         },
@@ -170,7 +173,7 @@ def _fallback_strategy(idea, market):
         "first_90_days": {
             "days_1_30": [
                 "Interview candidate users and document their current workflow and alternatives.",
-                "Select one problem and define a measurable pilot learning goal.",
+                "Select one problem and define a measurable pilot goal for " + profile["workflow_text"] + ".",
             ],
             "days_31_60": [
                 "Run a small, manually supported prototype pilot.",
@@ -183,8 +186,8 @@ def _fallback_strategy(idea, market):
         },
         "analysis_mode": "conservative_fallback",
         "analysis_note": (
-            "The GTM strategist could not return a reliable analysis. This is a "
-            "discovery checklist, not a validated GTM strategy; validate "
+            "Gemini was unavailable or returned an unusable response. This is "
+            "an idea-specific heuristic discovery draft, not a validated GTM strategy; validate "
             "segments, channels, differentiation, and pricing with customers."
         ),
     }

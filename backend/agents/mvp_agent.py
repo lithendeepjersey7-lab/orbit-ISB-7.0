@@ -6,9 +6,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 try:
     from response_validation import invoke_with_json_repair, parse_json_response
     from gemini_retry import invoke_with_retry
+    from fallback_strategy import fallback_profile
 except ImportError:
     from agents.response_validation import invoke_with_json_repair, parse_json_response
     from agents.gemini_retry import invoke_with_retry
+    from agents.fallback_strategy import fallback_profile
 
 load_dotenv()
 
@@ -97,6 +99,7 @@ def build_prompt(idea, market, competitors, swot=None):
 
 def _fallback_recommendation(idea, market, competitors):
     """Create a transparent pilot plan when Gemini cannot generate one."""
+    profile = fallback_profile(idea, market)
     segments = market.get("segments") or []
     primary_segment = next(
         (
@@ -104,13 +107,13 @@ def _fallback_recommendation(idea, market, competitors):
             for segment in segments
             if isinstance(segment, dict) and segment.get("name", "").strip()
         ),
-        "the intended customer",
+        profile["audience"],
     )
     market_gap = str(competitors.get("market_gaps") or "").strip()
-    core_feature = "Prototype the core workflow described by the idea"
-    pilot_feature = "Run a manual pilot with the target segment and record outcomes"
-    onboarding_feature = "Provide simple onboarding for the first pilot users"
-    extension_feature = "Add integrations or automation requested during the pilot"
+    core_feature = profile["must"][0][0] + " to " + profile["workflow_text"]
+    pilot_feature = profile["must"][1][0]
+    onboarding_feature = profile["should"][0]
+    extension_feature = profile["later"][0]
 
     return {
         "target_audience": primary_segment,
@@ -118,26 +121,23 @@ def _fallback_recommendation(idea, market, competitors):
         "must_have_features": [
             {
                 "feature": core_feature,
-                "why_important": (
-                    "It tests whether the product solves the problem stated in the idea "
-                    "for " + primary_segment + "."
-                ),
+                "why_important": profile["must"][0][1],
             },
             {
                 "feature": pilot_feature,
-                "why_important": "Observed task completion and feedback test demand before a larger build.",
+                "why_important": profile["must"][1][1],
             },
         ],
         "should_have_features": [
             {
                 "feature": onboarding_feature,
-                "why_important": "It helps a small pilot group reach the core workflow without building broad self-service tooling.",
+                "why_important": profile["should"][1],
             },
         ],
         "nice_to_have_features": [
             {
                 "feature": extension_feature,
-                "why_later": "Wait until pilot users show which integrations or repeated tasks matter.",
+                "why_later": profile["later"][1],
             },
         ],
         "build_phases": [
@@ -158,7 +158,7 @@ def _fallback_recommendation(idea, market, competitors):
             },
         ],
         "prioritization_rationale": (
-            "This fallback prioritizes a testable core workflow and low-cost learning. "
+            "This idea-specific heuristic draft prioritizes a testable workflow and low-cost learning. "
             + (
                 "The competitor analysis identifies this gap to investigate: " + market_gap
                 if market_gap

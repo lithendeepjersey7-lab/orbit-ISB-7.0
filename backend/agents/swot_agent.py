@@ -6,9 +6,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 try:
     from response_validation import invoke_with_json_repair, parse_json_response
     from gemini_retry import invoke_with_retry
+    from fallback_strategy import fallback_profile
 except ImportError:
     from agents.response_validation import invoke_with_json_repair, parse_json_response
     from agents.gemini_retry import invoke_with_retry
+    from agents.fallback_strategy import fallback_profile
 
 load_dotenv()
 
@@ -98,6 +100,7 @@ def build_prompt(idea, market, competitors):
 
 def _fallback_analysis(idea, market, competitors):
     """Return a clearly labelled, context-limited draft when Gemini is down."""
+    profile = fallback_profile(idea, market)
     segments = market.get("segments") or []
     segment_names = [
         segment.get("name", "").strip()
@@ -110,55 +113,56 @@ def _fallback_analysis(idea, market, competitors):
         if isinstance(company, dict) and company.get("name", "").strip()
     ]
     market_gap = str(competitors.get("market_gaps") or "").strip()
-    evidence_gaps = str(market.get("evidence_gaps") or "").strip()
-    audience = ", ".join(segment_names[:2]) or "the intended customer"
+    audience = ", ".join(segment_names[:2]) or profile["audience"]
+    gap_statement = (
+        "The available competitor search did not validate a specific unmet need. "
+        "Test whether customers need " + profile["workflow_text"] + "."
+    )
 
     return {
         "strengths": [
-            "The idea states a concrete problem to test: " + idea.strip()[:240],
-            "The available analysis identifies an initial pilot audience: " + audience + ".",
+            "The idea specifies a concrete task: help " + audience + " " + profile["workflow_text"] + ".",
+            "Inference (from context): A narrow first workflow makes a guided pilot feasible before investing in a broad product.",
         ],
         "weaknesses": [
-            evidence_gaps or (
-                "The supplied analysis does not establish willingness to pay or "
-                "repeat usage; both need customer validation."
-            ),
+            "The current run does not establish willingness to pay, repeat usage, or the frequency of this problem.",
+            "The proposed workflow and audience are inferred from the submitted idea; customer interviews are still needed.",
         ],
         "opportunities": [
-            market_gap or (
-                "No competitor gap was confirmed in the available analysis; "
-                "interview target customers to identify unmet needs."
-            ),
+            "Pilot " + profile["workflow_text"] + " with " + audience + " and measure task completion and repeat use.",
+            gap_statement if not market_gap else "Investigate the reported competitor gap with target customers before using it as a differentiation claim: " + market_gap,
         ],
         "threats": [
+            profile["risk"][0],
             (
-                "Existing alternatives include " + ", ".join(competitor_names[:4])
-                + "; their ability to serve this audience needs validation."
+                "Search identified possible alternatives (" + ", ".join(competitor_names[:4])
+                + "), but their products and fit are not verified in this run."
                 if competitor_names
-                else "Competitive evidence is incomplete; direct alternatives remain to be verified."
+                else "Competitor analysis is incomplete; direct and indirect alternatives remain to be checked."
             ),
         ],
         "risks": [
             {
                 "category": "market",
-                "risk": "The target customer's urgency and willingness to pay are not established in the supplied evidence.",
+                "risk": profile["risk"][0],
                 "likelihood": "medium",
                 "impact": "high",
-                "mitigation": "Interview target customers and request a concrete pilot or paid commitment before expanding scope.",
+                "mitigation": profile["risk"][1],
             },
             {
                 "category": "product",
-                "risk": "The proposed core workflow may not solve the stated problem well enough for repeat use.",
+                "risk": "The proposed product may not complete the core task reliably for " + audience + ".",
                 "likelihood": "medium",
-                "impact": "high",
-                "mitigation": "Prototype the narrowest end-to-end workflow and observe target users completing it.",
+                "impact": "medium",
+                "mitigation": "Prototype " + profile["workflow_text"] + " and observe target users completing it before adding features.",
             },
         ],
         "analysis_mode": "conservative_fallback",
         "analysis_note": (
             "Gemini was unavailable or returned an unusable response, so this "
-            "is a conservative draft based only on the supplied idea and "
-            "analyses. Risk ratings are provisional; validate them with "
+            "is an idea-specific heuristic draft based on the submitted idea "
+            "and available analyses, not model-generated or market-validated. "
+            "Risk ratings are provisional; validate them with "
             "customers before acting."
         ),
     }

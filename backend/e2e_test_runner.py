@@ -423,6 +423,48 @@ def _run_response_validation_checks():
     return failures
 
 
+def _run_idea_specific_fallback_checks():
+    """Check provider-outage drafts stay useful and specific across domains."""
+    swot_module = importlib.import_module("agents.swot_agent")
+    mvp_module = importlib.import_module("agents.mvp_agent")
+    gtm_module = importlib.import_module("agents.gtm_agent")
+    cases = (
+        (
+            "A mobile app that helps university students find study groups for difficult courses",
+            "Course and topic selection",
+        ),
+        ("AI-powered inventory management for small retailers", "stock"),
+        ("Smart meal planning app for busy families", "meal"),
+        ("Low-cost smart water monitoring device for homes", "sensor"),
+        ("Marketplace connecting local photographers with customers", "provider"),
+        ("Adaptive learning platform for engineering students", "learning"),
+    )
+    failures = []
+    for idea, expected in cases:
+        market = {"segments": [], "analysis_mode": "evidence_summary"}
+        competitors = {
+            "competitors": [],
+            "market_gaps": "No competitor gap was verified.",
+            "analysis_mode": "evidence_summary",
+        }
+        swot = swot_module._fallback_analysis(idea, market, competitors)
+        mvp = mvp_module._fallback_recommendation(idea, market, competitors)
+        gtm = gtm_module._fallback_strategy(idea, market)
+        combined = json.dumps({"swot": swot, "mvp": mvp, "gtm": gtm}).casefold()
+        if expected.casefold() not in combined:
+            failures.append("idea-specific fallback did not include {!r} for {!r}".format(expected, idea))
+        if not all(
+            section.get("analysis_mode") == "conservative_fallback"
+            for section in (swot, mvp, gtm)
+        ):
+            failures.append("fallback draft was not labelled for {!r}".format(idea))
+        if not swot["risks"] or any(not risk["mitigation"] for risk in swot["risks"]):
+            failures.append("structured risk/mitigation missing for {!r}".format(idea))
+        if not mvp["build_phases"] or not gtm["first_100_users"]["plan"]:
+            failures.append("MVP phases or GTM acquisition plan missing for {!r}".format(idea))
+    return failures
+
+
 def _run_idea(app_module, pipeline_module, domain, idea):
     fixtures = _fixtures(domain, idea)
     events = []
@@ -954,6 +996,7 @@ def main():
     app_module, pipeline_module = _load_application()
     schema_failures = _run_response_validation_checks()
     retry_failures, retry_note = _run_retry_and_advisor_checks(app_module, pipeline_module)
+    fallback_failures = _run_idea_specific_fallback_checks()
     results = [
         _run_idea(app_module, pipeline_module, domain, idea)
         for domain, idea in IDEAS
@@ -973,6 +1016,13 @@ def main():
             "FAIL: " + "; ".join(retry_failures)
             if retry_failures
             else "PASS" + (" - " + retry_note if retry_note else "")
+        )
+    )
+    print(
+        "Idea-specific outage fallback checks (curated domains): {}\n".format(
+            "FAIL: " + "; ".join(fallback_failures)
+            if fallback_failures
+            else "PASS for study groups, SaaS, consumer, hardware, marketplace, and EdTech."
         )
     )
     print("| Domain | Startup idea | Pipeline | Search | Market | Competitor | SWOT | MVP | GTM | Report | Elapsed | Errors |")
@@ -1023,14 +1073,13 @@ def main():
         if not all(item["agents"].values())
     ]
     print("\nWeak or missing outputs")
-    print("- " + ("; ".join(missing) if missing else "No missing/invalid fixture outputs; this does not assess live output quality."))
+    print("- " + ("; ".join(missing) if missing else "No missing/invalid pipeline fixture outputs."))
 
-    print("\nPrompt/agent issues for the next M4 step")
-    print("- This stubbed run cannot assess grounding, usefulness, domain fit, or prompt consistency.")
-    print("- Schema-invalid responses are rejected instead of being silently repaired into potentially fabricated analysis.")
-    print("- Run a separate live or curated-output rubric before making claims about analysis quality.")
+    print("\nLimitations")
+    print("- Offline checks verify response shape and curated fallback domain fit, not market truth or customer demand.")
+    print("- Gemini-generated synthesis still requires an available provider quota; fallback drafts are clearly labelled.")
 
-    return 0 if all(item["completed"] for item in results) and not schema_failures and not retry_failures else 1
+    return 0 if all(item["completed"] for item in results) and not schema_failures and not retry_failures and not fallback_failures else 1
 
 
 if __name__ == "__main__":
