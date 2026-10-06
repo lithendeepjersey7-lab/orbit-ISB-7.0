@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
-    from response_validation import parse_json_response
+    from response_validation import invoke_with_json_repair, parse_json_response
     from gemini_retry import invoke_with_retry
 except ImportError:
-    from agents.response_validation import parse_json_response
+    from agents.response_validation import invoke_with_json_repair, parse_json_response
     from agents.gemini_retry import invoke_with_retry
 
 load_dotenv()
@@ -113,25 +113,64 @@ def build_prompt(idea, evidence):
     )
 
 
+def _fallback_analysis(results):
+    leads = [
+        {
+            "title": str(item.get("title") or "Untitled source")[:160],
+            "url": str(item.get("url") or ""),
+            "snippet": str(item.get("snippet") or "")[:300],
+        }
+        for item in results
+        if isinstance(item, dict)
+        and "competitor" in str(item.get("category", "")).lower()
+        and (item.get("title") or item.get("snippet"))
+    ][:8]
+    summary = (
+        "Gemini synthesis is unavailable. These are competitor-search sources "
+        "to review, not confirmed competitors."
+        if leads
+        else "A source-grounded competitor analysis is unavailable for this validation run."
+    )
+    return {
+        "landscape_summary": summary,
+        "competitors": [],
+        "research_leads": leads,
+        "market_gaps": (
+            "No competitor gap was validated from this run. Identify direct and "
+            "indirect alternatives and validate unmet needs before claiming "
+            "differentiation; this result does not establish that competitors "
+            "or market gaps are absent."
+        ),
+        "analysis_mode": "evidence_summary" if leads else "analysis_unavailable",
+        "analysis_note": (
+            "Search-result titles and snippets are provided as leads only. "
+            "Review the linked sources to verify products, customer segments, "
+            "and competitive positioning; no competitor claims are inferred."
+        ),
+    }
+
+
 def analyse_competitors(idea, results):
     """Map the competitive landscape from search results.
 
-    Returns a dict on success, or None if the model failed or returned
-    something that was not valid JSON.
+    Returns source-grounded analysis or a labelled unavailable result when the
+    model fails or its output cannot be validated.
     """
+    if not results:
+        return _fallback_analysis([])
     evidence = condense(results)
     prompt = build_prompt(idea, evidence)
     try:
-        reply = invoke_with_retry(llm, prompt, "Competitor agent")
-        response_text = getattr(reply, "text", None)
+        result = invoke_with_json_repair(
+            llm, prompt, "Competitor agent", RESPONSE_SCHEMA, invoke_with_retry
+        )
     except Exception as error:
         print("Competitor agent failed:", error)
-        return None
-    result = parse_json(response_text)
+        return _fallback_analysis(results)
     if result is None or len(result["competitors"]) > 6:
-        return None
+        return _fallback_analysis(results)
     if any(competitor["type"] not in {"direct", "indirect"} for competitor in result["competitors"]):
-        return None
+        return _fallback_analysis(results)
     return result
 
 

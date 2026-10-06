@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
-    from response_validation import parse_json_response
+    from response_validation import invoke_with_json_repair, parse_json_response
     from gemini_retry import invoke_with_retry
 except ImportError:
-    from agents.response_validation import parse_json_response
+    from agents.response_validation import invoke_with_json_repair, parse_json_response
     from agents.gemini_retry import invoke_with_retry
 
 load_dotenv()
@@ -128,24 +128,92 @@ def build_prompt(idea, market, competitors, swot=None):
     )
 
 
+def _fallback_strategy(idea, market):
+    segments = market.get("segments") or []
+    segment = next(
+        (
+            item.get("name", "").strip()
+            for item in segments
+            if isinstance(item, dict) and item.get("name", "").strip()
+        ),
+        "No validated customer segment is available; identify one through interviews.",
+    )
+    return {
+        "positioning": {
+            "statement": "Positioning is unvalidated; test a concise promise around the problem stated in the idea: " + idea.strip(),
+            "differentiation": "No differentiation claim is supported until competitor evidence and customer feedback are available.",
+            "evidence_basis": "Fallback based on the submitted idea only; market and competitor evidence may be incomplete.",
+        },
+        "early_target_customers": [{
+            "segment": segment,
+            "why_start_here": "Treat this only as a discovery starting point; the segment has not been validated.",
+            "validation_signal": "Several target users independently describe the problem and agree to test a prototype.",
+        }],
+        "customer_acquisition_channels": [{
+            "channel": "Direct customer discovery",
+            "rationale": "Direct conversations can test the problem and segment before spending on acquisition.",
+            "low_cost_test": "Recruit a small set of people matching the candidate segment and record their current workaround.",
+        }],
+        "first_100_users": {
+            "plan": [
+                "Define and verify one initial customer segment through interviews.",
+                "Invite qualified interviewees to a manually supported prototype pilot.",
+                "Ask engaged pilot users for referrals; track activation and repeat use without assuming a conversion rate.",
+            ],
+            "success_signal": "A repeatable source of qualified pilot users and evidence that users return to complete the core task.",
+        },
+        "monetization": {
+            "model": "Not selected; validate who pays and what outcome they value before choosing a model.",
+            "pricing_hypothesis": "No price point is supported by the available evidence; test willingness to pay through customer interviews and a clearly described pilot offer.",
+            "validation_test": "Compare stated interest with concrete commitments to a pilot or paid trial; do not treat stated intent alone as proof.",
+        },
+        "first_90_days": {
+            "days_1_30": [
+                "Interview candidate users and document their current workflow and alternatives.",
+                "Select one problem and define a measurable pilot learning goal.",
+            ],
+            "days_31_60": [
+                "Run a small, manually supported prototype pilot.",
+                "Measure task completion, repeat use, and specific reasons users stop.",
+            ],
+            "days_61_90": [
+                "Revise the product and positioning using observed pilot evidence.",
+                "Test a payment commitment before investing in scalable acquisition.",
+            ],
+        },
+        "analysis_mode": "conservative_fallback",
+        "analysis_note": (
+            "The GTM strategist could not return a reliable analysis. This is a "
+            "discovery checklist, not a validated GTM strategy; validate "
+            "segments, channels, differentiation, and pricing with customers."
+        ),
+    }
+
+
 def develop_gtm_strategy(idea, market, competitors, swot=None):
     """Create a structured GTM strategy, or return None on model/JSON failure."""
+    if (
+        market.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}
+        and competitors.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}
+        and (not swot or swot.get("analysis_mode") == "conservative_fallback")
+    ):
+        return _fallback_strategy(idea, market)
     prompt = build_prompt(idea, market, competitors, swot)
     try:
-        reply = invoke_with_retry(llm, prompt, "GTM agent")
-        response_text = getattr(reply, "text", None)
+        result = invoke_with_json_repair(
+            llm, prompt, "GTM agent", RESPONSE_SCHEMA, invoke_with_retry
+        )
     except Exception as error:
         print("GTM strategy agent failed:", error)
-        return None
-    result = parse_json(response_text)
+        return _fallback_strategy(idea, market)
     if result is None:
-        return None
+        return _fallback_strategy(idea, market)
     if not result["early_target_customers"] or not result["customer_acquisition_channels"]:
-        return None
+        return _fallback_strategy(idea, market)
     if not result["first_100_users"]["plan"] or not result["first_100_users"]["success_signal"].strip():
-        return None
+        return _fallback_strategy(idea, market)
     if not all(result["monetization"][key].strip() for key in ("model", "pricing_hypothesis", "validation_test")):
-        return None
+        return _fallback_strategy(idea, market)
     if any(not result["first_90_days"][period] for period in ("days_1_30", "days_31_60", "days_61_90")):
-        return None
+        return _fallback_strategy(idea, market)
     return result

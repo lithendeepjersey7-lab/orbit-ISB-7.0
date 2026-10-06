@@ -145,6 +145,10 @@ uvicorn main:app --reload
 - Local backend: http://127.0.0.1:8000
 - Swagger documentation: http://127.0.0.1:8000/docs
 
+For the Render deployment, set the secret environment variable as
+`GOOGLE_API_KEY` (the name read by `ChatGoogleGenerativeAI`), not
+`GEMINI_API_KEY`. Never put the key in source control or send it in chat.
+
 ### Frontend Setup
 
 In a second terminal, serve the static frontend with Python's built-in server:
@@ -203,7 +207,9 @@ These tests verify technical integration and response contracts. They do not mea
 
 ## Reliability & Error Handling
 
-- **Transient failures:** Bounded retry handling (`gemini_retry.py`) is used for temporary Gemini service disruptions such as `503 UNAVAILABLE`. Retries are limited and intended only for temporary issues.
+- **Transient failures:** `gemini_retry.py` retries temporary Gemini `503 UNAVAILABLE` and `500 INTERNAL` errors once, then fails over from Gemini 3.7 Flash to Gemini 3.8 Flash. A model-specific `429 RESOURCE_EXHAUSTED` is sent to the alternate model without retrying the limited model. This keeps outages from consuming the full request window; other error types are not retried. Project-wide quota exhaustion still requires quota reset or billing/API-key changes in Google AI Studio.
+- **SWOT and MVP continuity:** If Gemini is unavailable or returns unusable structured output, these critical stages return a clearly labelled conservative, context-limited draft instead of disappearing. Fallback plans do not count as completed AI analyses in the report coverage score.
+- **Other agent continuity:** When Gemini synthesis is unavailable, Market and Competitor sections preserve relevant search-result titles, snippets, and links as explicitly unverified research leads; they do not invent market facts or claim those leads are confirmed competitors. GTM and the advisor also return labelled limited responses. The report download action produces a PDF attachment.
 - **Non-retryable failures:** Authentication errors, invalid requests, and quota errors are not repeatedly retried.
 
 ---

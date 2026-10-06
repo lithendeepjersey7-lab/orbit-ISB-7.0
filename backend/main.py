@@ -21,6 +21,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition", "Content-Type"],
 )
 
 
@@ -45,7 +46,11 @@ class AdvisorRequest(BaseModel):
 
 @app.get("/")
 def home():
-    return {"message": "Litmus - AI Startup Idea Validator API", "milestone": 4}
+    return {
+        "message": "Litmus - AI Startup Idea Validator API",
+        "milestone": 4,
+        "gemini_failover_model": "gemini-3.8-flash",
+    }
 
 
 @app.post("/validate")

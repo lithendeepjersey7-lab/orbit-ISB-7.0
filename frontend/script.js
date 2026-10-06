@@ -325,8 +325,35 @@ function buildMarket(market) {
     box.appendChild(withEstimateMarks(market.evidence_gaps));
   }
 
+  appendResearchLeads(box, "Live market search leads (not verified findings)", market.source_findings);
   addAskButton(box, "Market analysis");
   return box;
+}
+
+function appendResearchLeads(box, headingText, leads) {
+  if (!Array.isArray(leads) || !leads.length) return;
+  const heading = document.createElement("h3");
+  heading.textContent = headingText;
+  box.appendChild(heading);
+  const list = document.createElement("ul");
+  for (const lead of leads) {
+    const item = document.createElement("li");
+    const link = document.createElement("a");
+    link.textContent = lead.title || "Search result";
+    link.href = lead.url || "#";
+    if (lead.url) {
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    }
+    item.appendChild(link);
+    if (lead.category || lead.snippet) {
+      const detail = document.createElement("p");
+      detail.textContent = [lead.category, lead.snippet].filter(Boolean).join(" — ");
+      item.appendChild(detail);
+    }
+    list.appendChild(item);
+  }
+  box.appendChild(list);
 }
 
 function buildCompetitors(data) {
@@ -391,6 +418,7 @@ function buildCompetitors(data) {
     box.appendChild(withEstimateMarks(data.market_gaps));
   }
 
+  appendResearchLeads(box, "Competitor search leads (not confirmed competitors)", data.research_leads);
   addAskButton(box, "Competitor analysis");
   return box;
 }
@@ -589,7 +617,14 @@ function buildAdvisor(data) {
         // instead of claiming the server could not be reached.
         try {
           const body = await response.json();
-          if (typeof body.detail === "string") serverMessage = body.detail;
+          if (typeof body.detail === "string") {
+            serverMessage = body.detail;
+          } else if (Array.isArray(body.detail)) {
+            serverMessage = body.detail
+              .map((item) => item.msg || item.type || "")
+              .filter(Boolean)
+              .join("; ");
+          }
         } catch (parseError) {}
         throw new Error("Advisor request failed");
       }
@@ -656,8 +691,12 @@ async function downloadReport(data, button) {
     const link = document.createElement("a");
     link.href = url;
     link.download = "litmus-validation-report.pdf";
+    document.body.appendChild(link);
     link.click();
+    link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    statusLine.textContent = "Validation PDF downloaded.";
+    statusLine.className = "";
   } catch (error) {
     statusLine.textContent = error.message || "Could not generate the PDF report.";
     statusLine.className = "error";

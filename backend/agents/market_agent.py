@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
-    from response_validation import parse_json_response
+    from response_validation import invoke_with_json_repair, parse_json_response
     from gemini_retry import invoke_with_retry
 except ImportError:
-    from agents.response_validation import parse_json_response
+    from agents.response_validation import invoke_with_json_repair, parse_json_response
     from agents.gemini_retry import invoke_with_retry
 
 load_dotenv()
@@ -118,25 +118,70 @@ def build_prompt(idea, evidence):
     )
 
 
+def _fallback_analysis(results):
+    evidence = [
+        {
+            "title": str(item.get("title") or "Untitled source")[:160],
+            "url": str(item.get("url") or ""),
+            "category": str(item.get("category") or ""),
+            "snippet": str(item.get("snippet") or "")[:300],
+        }
+        for item in results[:8]
+        if isinstance(item, dict) and (item.get("title") or item.get("snippet"))
+    ]
+    market_sources = [
+        item for item in evidence
+        if "market" in item["category"].lower() or "demand" in item["category"].lower()
+    ]
+    if not market_sources:
+        market_sources = evidence[:5]
+    summary = (
+        "Gemini synthesis is unavailable. The following are search-result leads "
+        "only, not verified market findings."
+        if market_sources
+        else "No source-grounded market analysis or usable search leads are available."
+    )
+    return {
+        "market_summary": summary,
+        "market_size": "Not assessed: no reliable market-size estimate can be produced without verifiable sources.",
+        "growth_and_demand": "Not assessed: demand and growth claims require current, relevant evidence.",
+        "segments": [],
+        "source_findings": market_sources,
+        "evidence_gaps": (
+            "Customer segments, market size, growth, and willingness to pay could "
+            "not be validated from this run. Verify these claims against current "
+            "sources and customer research before making decisions."
+        ),
+        "analysis_mode": "evidence_summary" if market_sources else "analysis_unavailable",
+        "analysis_note": (
+            "Gemini could not synthesize the results. Source leads are shown "
+            "verbatim for manual review; no market-size, trend, or customer "
+            "claim has been inferred from them."
+        ),
+    }
+
+
 def analyse_market(idea, results):
     """Turn search results into a structured market analysis.
 
-    Returns a dict on success, or None if the model failed or returned
-    something that was not valid JSON. The caller decides what to do about it.
+    Returns source-grounded analysis or a labelled unavailable result when the
+    model fails or its output cannot be validated.
     """
+    if not results:
+        return _fallback_analysis([])
     evidence = condense(results)
     prompt = build_prompt(idea, evidence)
     try:
-        reply = invoke_with_retry(llm, prompt, "Market agent")
-        response_text = getattr(reply, "text", None)
+        result = invoke_with_json_repair(
+            llm, prompt, "Market agent", RESPONSE_SCHEMA, invoke_with_retry
+        )
     except Exception as error:
         print("Market agent failed:", error)
-        return None
-    result = parse_json(response_text)
+        return _fallback_analysis(results)
     if result is None or len(result["segments"]) > 3:
-        return None
+        return _fallback_analysis(results)
     if any(segment["side"] not in {"buyer", "supply", "both", "n/a"} for segment in result["segments"]):
-        return None
+        return _fallback_analysis(results)
     return result
 
 

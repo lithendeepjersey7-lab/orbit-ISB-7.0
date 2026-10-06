@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
-    from response_validation import parse_json_response
+    from response_validation import invoke_with_json_repair, parse_json_response
     from gemini_retry import invoke_with_retry
 except ImportError:
-    from agents.response_validation import parse_json_response
+    from agents.response_validation import invoke_with_json_repair, parse_json_response
     from agents.gemini_retry import invoke_with_retry
 
 load_dotenv()
@@ -95,18 +95,103 @@ def build_prompt(idea, market, competitors, swot=None):
     )
 
 
+def _fallback_recommendation(idea, market, competitors):
+    """Create a transparent pilot plan when Gemini cannot generate one."""
+    segments = market.get("segments") or []
+    primary_segment = next(
+        (
+            segment.get("name", "").strip()
+            for segment in segments
+            if isinstance(segment, dict) and segment.get("name", "").strip()
+        ),
+        "the intended customer",
+    )
+    market_gap = str(competitors.get("market_gaps") or "").strip()
+    core_feature = "Prototype the core workflow described by the idea"
+    pilot_feature = "Run a manual pilot with the target segment and record outcomes"
+    onboarding_feature = "Provide simple onboarding for the first pilot users"
+    extension_feature = "Add integrations or automation requested during the pilot"
+
+    return {
+        "target_audience": primary_segment,
+        "product_summary": idea.strip(),
+        "must_have_features": [
+            {
+                "feature": core_feature,
+                "why_important": (
+                    "It tests whether the product solves the problem stated in the idea "
+                    "for " + primary_segment + "."
+                ),
+            },
+            {
+                "feature": pilot_feature,
+                "why_important": "Observed task completion and feedback test demand before a larger build.",
+            },
+        ],
+        "should_have_features": [
+            {
+                "feature": onboarding_feature,
+                "why_important": "It helps a small pilot group reach the core workflow without building broad self-service tooling.",
+            },
+        ],
+        "nice_to_have_features": [
+            {
+                "feature": extension_feature,
+                "why_later": "Wait until pilot users show which integrations or repeated tasks matter.",
+            },
+        ],
+        "build_phases": [
+            {
+                "phase": "Phase 1 - Validate the core workflow",
+                "features": [core_feature, pilot_feature],
+                "exit_criteria": "Target users can complete the core task in a guided pilot and provide specific feedback.",
+            },
+            {
+                "phase": "Phase 2 - Improve the pilot experience",
+                "features": [onboarding_feature],
+                "exit_criteria": "Pilot users can start and complete the workflow with less founder assistance.",
+            },
+            {
+                "phase": "Phase 3 - Expand selectively",
+                "features": [extension_feature],
+                "exit_criteria": "At least one requested integration or automation is repeatedly validated by target users.",
+            },
+        ],
+        "prioritization_rationale": (
+            "This fallback prioritizes a testable core workflow and low-cost learning. "
+            + (
+                "The competitor analysis identifies this gap to investigate: " + market_gap
+                if market_gap
+                else "No competitor gap was available, so differentiation must be validated in customer interviews."
+            )
+            + " Defer integrations and automation until pilot evidence supports them."
+        ),
+        "analysis_mode": "conservative_fallback",
+        "analysis_note": (
+            "Gemini was unavailable or returned an unusable response, so this "
+            "is a conservative pilot plan based only on the idea and supplied "
+            "analysis; validate scope with target users."
+        ),
+    }
+
+
 def recommend_mvp(idea, market, competitors, swot=None):
     """Recommend a minimal first version, or return None on model/JSON failure."""
+    if (
+        market.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}
+        and competitors.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}
+    ):
+        return _fallback_recommendation(idea, market, competitors)
     prompt = build_prompt(idea, market, competitors, swot)
     try:
-        reply = invoke_with_retry(llm, prompt, "MVP agent")
-        response_text = getattr(reply, "text", None)
+        result = invoke_with_json_repair(
+            llm, prompt, "MVP agent", RESPONSE_SCHEMA, invoke_with_retry
+        )
     except Exception as error:
         print("MVP recommendation agent failed:", error)
-        return None
-    result = parse_json(response_text)
+        return _fallback_recommendation(idea, market, competitors)
     if result is None or not result["must_have_features"] or not result["build_phases"]:
-        return None
+        return _fallback_recommendation(idea, market, competitors)
     if any(not phase["features"] or not phase["exit_criteria"].strip() for phase in result["build_phases"]):
-        return None
+        return _fallback_recommendation(idea, market, competitors)
     return result

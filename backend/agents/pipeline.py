@@ -67,6 +67,12 @@ def _agent_failure(label: str) -> str:
     return label + " returned no usable JSON"
 
 
+def _fallback_notice(label: str, fallback_detail: str) -> str:
+    provider_failure = take_failure()
+    detail = provider_failure or fallback_detail
+    return label + ": " + detail
+
+
 def search_node(state: State) -> dict:
     """Milestone 1's agent, unchanged, as step one."""
     try:
@@ -76,64 +82,102 @@ def search_node(state: State) -> dict:
 
 
 def market_node(state: State) -> dict:
-    if not state.get("search"):
-        return {"market": None, "errors": ["Market agent skipped: no search results"]}
-    result = analyse_market(state["idea"], state["search"]["results"])
+    result = analyse_market(
+        state["idea"],
+        (state.get("search") or {}).get("results", []),
+    )
     if result is None:
         return {"market": None, "errors": [_agent_failure("Market agent")]}
+    if result.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}:
+        return {
+            "market": result,
+            "errors": [_fallback_notice(
+                "Market agent returned search leads only",
+                "no source-grounded synthesis was available",
+            )],
+        }
     return {"market": result}
 
 
 def competitor_node(state: State) -> dict:
-    if not state.get("search"):
-        return {"competitors": None, "errors": ["Competitor agent skipped: no search results"]}
-    result = analyse_competitors(state["idea"], state["search"]["results"])
+    result = analyse_competitors(
+        state["idea"],
+        (state.get("search") or {}).get("results", []),
+    )
     if result is None:
         return {"competitors": None, "errors": [_agent_failure("Competitor agent")]}
+    if result.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}:
+        return {
+            "competitors": result,
+            "errors": [_fallback_notice(
+                "Competitor agent returned search leads only",
+                "competitors were not independently verified",
+            )],
+        }
     return {"competitors": result}
 
 
 def swot_node(state: State) -> dict:
-    """Run SWOT analysis after both Milestone 2 analyses are complete."""
-    if not state.get("market") or not state.get("competitors"):
-        return {"swot": None, "errors": ["SWOT agent skipped: market or competitor analysis unavailable"]}
+    """Run SWOT even with missing research; the agent labels any fallback draft."""
     result = analyse_swot(
         state["idea"],
-        state["market"],
-        state["competitors"],
+        state.get("market") or {},
+        state.get("competitors") or {},
     )
     if result is None:
         return {"swot": None, "errors": [_agent_failure("SWOT agent")]}
+    if result.get("analysis_mode") == "conservative_fallback":
+        return {
+            "swot": result,
+            "errors": [_fallback_notice(
+                "SWOT agent used a conservative fallback",
+                "it could not produce a reliable analysis",
+            )],
+        }
     return {"swot": result}
 
 
 def mvp_node(state: State) -> dict:
-    """Recommend a minimal first version from the existing analyses."""
-    if not state.get("market") or not state.get("competitors"):
-        return {"mvp": None, "errors": ["MVP agent skipped: market or competitor analysis unavailable"]}
+    """Recommend an MVP from available research, or the idea alone if needed."""
     result = recommend_mvp(
         state["idea"],
-        state["market"],
-        state["competitors"],
+        state.get("market") or {},
+        state.get("competitors") or {},
         state.get("swot"),
     )
     if result is None:
         return {"mvp": None, "errors": [_agent_failure("MVP agent")]}
+    if result.get("analysis_mode") == "conservative_fallback":
+        return {
+            "mvp": result,
+            "errors": [_fallback_notice(
+                "MVP agent used a conservative fallback",
+                "it could not produce a reliable recommendation",
+            )],
+        }
     return {"mvp": result}
 
 
 def gtm_node(state: State) -> dict:
     """Create a GTM strategy after the existing analyses and MVP stage."""
-    if not state.get("market") or not state.get("competitors") or not state.get("swot"):
-        return {"gtm": None, "errors": ["GTM agent skipped: market, competitor, or SWOT analysis unavailable"]}
+    if not state.get("market") and not state.get("competitors") and not state.get("swot"):
+        return {"gtm": None, "errors": ["GTM agent skipped: no upstream analysis available"]}
     result = develop_gtm_strategy(
         state["idea"],
-        state["market"],
-        state["competitors"],
-        state["swot"],
+        state.get("market") or {},
+        state.get("competitors") or {},
+        state.get("swot") or {},
     )
     if result is None:
         return {"gtm": None, "errors": [_agent_failure("GTM agent")]}
+    if result.get("analysis_mode") == "conservative_fallback":
+        return {
+            "gtm": result,
+            "errors": [_fallback_notice(
+                "GTM agent used a conservative fallback",
+                "it could not produce a reliable strategy",
+            )],
+        }
     return {"gtm": result}
 
 

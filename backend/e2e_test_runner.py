@@ -10,6 +10,7 @@ search results or the quality of Gemini-generated analysis.
 import importlib
 import json
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -218,14 +219,14 @@ def _run_response_validation_checks():
         "market": (
             importlib.import_module("agents.market_agent"),
             fixture_set["market"],
-            lambda module: module.analyse_market("sample", []),
+            lambda module: module.analyse_market("sample", fixture_set["search"]["results"]),
             lambda value: value["segments"][0].update(name=42),
             lambda value: value["segments"][0].update(side="invalid"),
         ),
         "competitors": (
             importlib.import_module("agents.competitor_agent"),
             fixture_set["competitors"],
-            lambda module: module.analyse_competitors("sample", []),
+            lambda module: module.analyse_competitors("sample", fixture_set["search"]["results"]),
             lambda value: value["competitors"][0].update(offering=None),
             lambda value: value["competitors"][0].update(type="invalid"),
         ),
@@ -281,8 +282,48 @@ def _run_response_validation_checks():
             failures.append(name + " parser accepted a wrong nested type")
 
         with patch.object(module.llm, "invoke", return_value=None):
-            if invoke_agent(module) is not None:
+            empty_result = invoke_agent(module)
+            expected_fallback = True
+            if (empty_result is not None) != expected_fallback or (
+                expected_fallback
+                and not empty_result.get("analysis_mode")
+            ):
                 failures.append(name + " agent accepted a response without text")
+
+        with patch.object(
+            module.llm,
+            "invoke",
+            side_effect=[
+                SimpleNamespace(text="Here is the result, but it is not JSON."),
+                SimpleNamespace(text=valid_text),
+            ],
+        ) as invoke:
+            repaired = invoke_agent(module)
+            recovered = repaired == valid_payload
+            fallback_used = (
+                name in {"market", "competitors", "swot", "mvp", "gtm", "advisor"}
+                and isinstance(repaired, dict)
+                and repaired.get("analysis_mode")
+            )
+            if (not recovered and not fallback_used) or invoke.call_count != 2:
+                failures.append(name + " agent did not recover from one malformed JSON response")
+
+        with patch.object(
+            module.llm,
+            "invoke",
+            side_effect=[
+                SimpleNamespace(text="not JSON"),
+                SimpleNamespace(text="still not JSON"),
+            ],
+        ) as invoke:
+            unusable = invoke_agent(module)
+            expected_fallback = True
+            if (
+                (unusable is not None) != expected_fallback
+                or (expected_fallback and not unusable.get("analysis_mode"))
+                or invoke.call_count != 2
+            ):
+                failures.append(name + " agent did not bound JSON repair to one attempt")
 
         if make_semantically_invalid is not None:
             semantic_invalid = json.loads(valid_text)
@@ -292,8 +333,92 @@ def _run_response_validation_checks():
                 "invoke",
                 return_value=SimpleNamespace(text=json.dumps(semantic_invalid)),
             ):
-                if invoke_agent(module) is not None:
-                    failures.append(name + " agent accepted an invalid domain-specific output")
+                invalid_result = invoke_agent(module)
+                if not invalid_result or not invalid_result.get("analysis_mode"):
+                    failures.append(name + " did not fall back from semantically invalid output")
+
+    market_context = {
+        "segments": [{"name": "independent grocery stores"}],
+        "evidence_gaps": "Willingness to pay is not established.",
+    }
+    competitor_context = {
+        "competitors": [{"name": "Existing inventory platform"}],
+        "market_gaps": "Small-store demand forecasting is underserved.",
+    }
+    fallback_agents = (
+        ("market", importlib.import_module("agents.market_agent"), lambda m: m.analyse_market("sample", fixture_set["search"]["results"]), fixture_set["market"]),
+        ("competitors", importlib.import_module("agents.competitor_agent"), lambda m: m.analyse_competitors("sample", fixture_set["search"]["results"]), fixture_set["competitors"]),
+        ("swot", importlib.import_module("agents.swot_agent"), lambda m: m.analyse_swot("sample", {}, {}), fixture_set["swot"]),
+        ("mvp", importlib.import_module("agents.mvp_agent"), lambda m: m.recommend_mvp("sample", {}, {}), fixture_set["mvp"]),
+        ("gtm", importlib.import_module("agents.gtm_agent"), lambda m: m.develop_gtm_strategy("sample", {}, {}, {}), fixture_set["gtm"]),
+        ("advisor", importlib.import_module("agents.advisor_agent"), lambda m: m.answer_follow_up("question", "sample", {}, {}, {}, {}, {}), advisor_response),
+    )
+    for name, module, call, _ in fallback_agents:
+        with patch.object(module, "invoke_with_json_repair", side_effect=RuntimeError("Gemini unavailable")):
+            fallback = call(module)
+        if not fallback or not fallback.get("analysis_mode"):
+            failures.append(name + " agent did not return a labelled fallback on provider failure")
+
+    for name, module, call in (
+        (
+            "swot",
+            importlib.import_module("agents.swot_agent"),
+            lambda module: module.analyse_swot(
+                "AI inventory planning for small grocers",
+                market_context,
+                competitor_context,
+            ),
+        ),
+        (
+            "mvp",
+            importlib.import_module("agents.mvp_agent"),
+            lambda module: module.recommend_mvp(
+                "AI inventory planning for small grocers",
+                market_context,
+                competitor_context,
+            ),
+        ),
+    ):
+        with patch.object(module, "invoke_with_json_repair", side_effect=RuntimeError("Gemini unavailable")):
+            fallback = call(module)
+        if not fallback or fallback.get("analysis_mode") != "conservative_fallback":
+            failures.append(name + " agent did not return a clearly marked fallback on provider failure")
+        elif not fallback.get("analysis_note"):
+            failures.append(name + " fallback omitted its limitation notice")
+
+    searchless = dict(fixture_set["search"])
+    searchless["results"] = []
+    pipeline_module = importlib.import_module("agents.pipeline")
+    with (
+        patch.object(pipeline_module, "search_idea", return_value=searchless),
+        patch.object(
+            importlib.import_module("agents.swot_agent"),
+            "invoke_with_json_repair",
+            side_effect=AssertionError("SWOT should not call Gemini without research"),
+        ),
+        patch.object(
+            importlib.import_module("agents.mvp_agent"),
+            "invoke_with_json_repair",
+            side_effect=AssertionError("MVP should not call Gemini without research"),
+        ),
+        patch.object(
+            importlib.import_module("agents.gtm_agent"),
+            "invoke_with_json_repair",
+            side_effect=AssertionError("GTM should not call Gemini without research"),
+        ),
+    ):
+        response = pipeline_module.validate("sample startup")
+    for name in ("market", "competitors", "swot", "mvp", "gtm"):
+        if not response.get(name) or not response[name].get("analysis_mode"):
+            failures.append(name + " stage disappeared when search returned no evidence")
+
+    repository_root = Path(__file__).resolve().parents[1]
+    render_config = (repository_root / "render.yaml").read_text(encoding="utf-8")
+    env_example = (repository_root / "backend" / ".env.example").read_text(encoding="utf-8")
+    if "key: GOOGLE_API_KEY" not in render_config or "GOOGLE_API_KEY=" not in env_example:
+        failures.append("Gemini GOOGLE_API_KEY is missing from Render or local environment configuration")
+    if "key: GEMINI_API_KEY" in render_config or "GEMINI_API_KEY=" in env_example:
+        failures.append("Gemini environment configuration uses an unsupported key name")
 
     return failures
 
@@ -435,8 +560,6 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
     Gemini is replaced by stubs that raise or return canned replies. This proves
     the retry/error handling logic only. It does not prove live Gemini behaviour.
     """
-    from fastapi import HTTPException
-
     gemini_retry = importlib.import_module("agents.gemini_retry")
     market_module = importlib.import_module("agents.market_agent")
     competitor_module = importlib.import_module("agents.competitor_agent")
@@ -450,6 +573,7 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
             self.code = code
 
     unavailable = FakeApiError(503, "UNAVAILABLE. This model is currently experiencing high demand.")
+    internal = FakeApiError(500, "INTERNAL. Temporary internal service error.")
 
     # 1. A 503 followed by a good reply is retried once and succeeds.
     calls = []
@@ -477,6 +601,99 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
                 failures.append("retry: persistent 503 was not bounded to MAX_ATTEMPTS")
     if "503" not in (gemini_retry.take_failure() or ""):
         failures.append("retry: exhausted retries lost the original 503 detail")
+
+    calls.clear()
+    def intermittent_internal(prompt):
+        calls.append(prompt)
+        if len(calls) == 1:
+            raise internal
+        return "recovered after internal error"
+    with patch.object(gemini_retry.time, "sleep"):
+        if gemini_retry.invoke_with_retry(
+            SimpleNamespace(invoke=intermittent_internal), "p", "Test agent"
+        ) != "recovered after internal error" or len(calls) != 2:
+            failures.append("retry: transient Gemini 500 INTERNAL was not retried once")
+
+    # 2b. When the primary Gemini 3.7 model remains overloaded, a configured
+    #     stable Flash fallback gets the same prompt and can recover the call.
+    primary_calls = []
+    fallback_calls = []
+    primary_llm = SimpleNamespace(model="gemini-3.7-flash")
+
+    def primary_503(prompt):
+        primary_calls.append(prompt)
+        raise unavailable
+
+    def fallback_ok(prompt):
+        fallback_calls.append(prompt)
+        return "fallback reply"
+
+    fallback_llm = SimpleNamespace(model="gemini-3.8-flash", invoke=fallback_ok)
+
+    with patch.object(gemini_retry.time, "sleep"):
+        recovered = gemini_retry.invoke_with_retry(
+            SimpleNamespace(model=primary_llm.model, invoke=primary_503),
+            "same prompt",
+            "Test agent",
+            max_attempts=2,
+            fallback_factory=lambda primary: fallback_llm,
+        )
+    if (
+        recovered != "fallback reply"
+        or len(primary_calls) != 2
+        or fallback_calls != ["same prompt"]
+    ):
+        failures.append("retry: overloaded primary did not fail over to the stable model")
+
+    # A 429 quota response is not retried on that same model, but a single
+    # call to an alternate model may have a separate per-model rate budget.
+    quota_error = FakeApiError(429, "RESOURCE_EXHAUSTED model request quota")
+    quota_primary_calls = []
+
+    def primary_429(prompt):
+        quota_primary_calls.append(prompt)
+        raise quota_error
+
+    fallback_calls.clear()
+    with patch.object(gemini_retry.time, "sleep") as sleep:
+        recovered = gemini_retry.invoke_with_retry(
+            SimpleNamespace(model=primary_llm.model, invoke=primary_429),
+            "quota prompt",
+            "Test agent",
+            max_attempts=2,
+            fallback_factory=lambda primary: fallback_llm,
+        )
+    if (
+        recovered != "fallback reply"
+        or len(quota_primary_calls) != 1
+        or fallback_calls != ["quota prompt"]
+        or sleep.called
+    ):
+        failures.append("retry: quota-limited model was retried or alternate-model fallback failed")
+
+    # The fallback is also bounded, and errors explain both failed models.
+    fallback_calls.clear()
+
+    def fallback_503(prompt):
+        fallback_calls.append(prompt)
+        raise unavailable
+
+    with patch.object(gemini_retry.time, "sleep"):
+        try:
+            gemini_retry.invoke_with_retry(
+                SimpleNamespace(model=primary_llm.model, invoke=primary_503),
+                "same prompt",
+                "Test agent",
+                max_attempts=2,
+                fallback_factory=lambda primary: SimpleNamespace(
+                    model=fallback_llm.model, invoke=fallback_503
+                ),
+            )
+            failures.append("retry: persistent primary and fallback outage did not raise")
+        except FakeApiError:
+            failure = gemini_retry.take_failure() or ""
+            if "gemini-3.8-flash" not in failure or len(fallback_calls) != 2:
+                failures.append("retry: dual-model failure was not reported or bounded")
 
     # 3. 429, auth, bad-request and unknown errors are never retried.
     for error in (FakeApiError(429, "RESOURCE_EXHAUSTED"), FakeApiError(403, "PERMISSION_DENIED"),
@@ -512,22 +729,69 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
             return SimpleNamespace(text=market_behaviour)
         return stub
 
+    search_with_competitor = dict(fixtures["search"])
+    search_with_competitor["results"] = [
+        {**item, "category": "Competitors"}
+        for item in fixtures["search"]["results"]
+    ]
     with (
         patch.object(gemini_retry.time, "sleep"),
-        patch.object(pipeline_module, "search_idea", return_value=fixtures["search"]),
+        patch.object(pipeline_module, "search_idea", return_value=search_with_competitor),
         patch.object(market_module.llm, "invoke", side_effect=make_llm_stub(unavailable)),
-        patch.object(competitor_module.llm, "invoke", side_effect=make_llm_stub(unavailable)),
+        patch.object(competitor_module.llm, "invoke", side_effect=unavailable),
+        patch.object(pipeline_module, "analyse_swot", return_value=fixtures["swot"]) as swot_call,
+        patch.object(pipeline_module, "recommend_mvp", return_value=fixtures["mvp"]) as mvp_call,
+        patch.object(pipeline_module, "develop_gtm_strategy", return_value=fixtures["gtm"]) as gtm_call,
     ):
         result = app_module.run_pipeline("retry test idea")
     errors = result.get("errors", [])
-    if result.get("market") is not None or result.get("swot") or result.get("mvp") or result.get("gtm"):
-        failures.append("pipeline: missing market must leave market/swot/mvp/gtm empty (no fabrication)")
-    if result.get("competitors") != fixtures["competitors"]:
-        failures.append("pipeline: the available competitor result was not returned")
-    if not any(e.startswith("Market agent failed:") and "503" in e for e in errors):
-        failures.append("pipeline: market 503 was not reported with its real cause: {}".format(errors))
-    if not any(e.startswith("SWOT agent skipped") for e in errors):
-        failures.append("pipeline: downstream skip was not reported")
+    if not result.get("market") or result["market"].get("analysis_mode") != "evidence_summary":
+        failures.append("pipeline: available market-search leads were not returned after Gemini failure")
+    if not result.get("competitors") or result["competitors"].get("analysis_mode") != "evidence_summary":
+        failures.append("pipeline: available competitor-search leads were not returned after Gemini failure")
+    if result.get("swot") is None or result.get("mvp") is None or result.get("gtm") is None:
+        failures.append("pipeline: downstream agents did not use available competitor context")
+    if (
+        swot_call.call_args.args[1].get("analysis_mode") != "evidence_summary"
+        or mvp_call.call_args.args[1].get("analysis_mode") != "evidence_summary"
+        or gtm_call.call_args.args[1].get("analysis_mode") != "evidence_summary"
+    ):
+        failures.append("pipeline: downstream agents did not receive the evidence-only market summary")
+
+    swot_module = importlib.import_module("agents.swot_agent")
+    mvp_module = importlib.import_module("agents.mvp_agent")
+    with (
+        patch.object(pipeline_module, "search_idea", return_value=search_with_competitor),
+        patch.object(pipeline_module, "analyse_market", return_value=fixtures["market"]),
+        patch.object(pipeline_module, "analyse_competitors", return_value=fixtures["competitors"]),
+        patch.object(swot_module, "invoke_with_json_repair", side_effect=RuntimeError("Gemini unavailable")),
+        patch.object(mvp_module, "invoke_with_json_repair", side_effect=RuntimeError("Gemini unavailable")),
+        patch.object(pipeline_module, "develop_gtm_strategy", return_value=fixtures["gtm"]),
+    ):
+        result = app_module.run_pipeline("retry test idea")
+    if not result.get("swot") or result["swot"].get("analysis_mode") != "conservative_fallback":
+        failures.append("pipeline: SWOT provider failure did not return the labelled fallback")
+    if not result.get("mvp") or result["mvp"].get("analysis_mode") != "conservative_fallback":
+        failures.append("pipeline: MVP provider failure did not return the labelled fallback")
+    if not any("SWOT agent used a conservative fallback" in error for error in result.get("errors", [])):
+        failures.append("pipeline: SWOT fallback warning was not surfaced")
+    if not any("MVP agent used a conservative fallback" in error for error in result.get("errors", [])):
+        failures.append("pipeline: MVP fallback warning was not surfaced")
+
+    search_without_results = dict(fixtures["search"])
+    search_without_results["results"] = []
+    with patch.object(pipeline_module, "search_idea", return_value=search_without_results):
+        result = app_module.run_pipeline("retry test idea")
+    if not result.get("swot") or not result["swot"].get("analysis_mode"):
+        failures.append("pipeline: SWOT was skipped when market and competitor research were missing")
+    if not result.get("mvp") or not result["mvp"].get("analysis_mode"):
+        failures.append("pipeline: MVP was skipped when market and competitor research were missing")
+    if not result.get("gtm") or result["gtm"].get("analysis_mode") != "conservative_fallback":
+        failures.append("pipeline: GTM fallback was not returned without research")
+    if not result.get("market") or result["market"].get("analysis_mode") != "analysis_unavailable":
+        failures.append("pipeline: market did not disclose missing research")
+    if not result.get("competitors") or result["competitors"].get("analysis_mode") != "analysis_unavailable":
+        failures.append("pipeline: competitor analysis did not disclose missing research")
 
     # 6. Pipeline: a model reply that is not usable JSON keeps the old message.
     with (
@@ -536,11 +800,10 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
         patch.object(competitor_module.llm, "invoke", side_effect=make_llm_stub("not json")),
     ):
         result = app_module.run_pipeline("retry test idea")
-    if "Market agent returned no usable JSON" not in result.get("errors", []):
-        failures.append("pipeline: invalid JSON no longer reports 'returned no usable JSON'")
+    if not result.get("market") or result["market"].get("analysis_mode") != "evidence_summary":
+        failures.append("pipeline: invalid market JSON did not return the labelled evidence summary")
 
-    # 7. /advisor: success, 503 -> HTTP 503, invalid reply -> HTTP 502, and a
-    #    request whose failed agents are null is accepted (it used to be a 422).
+    # 7. /advisor: success and labelled fallback on provider/output failure.
     good = {"answer": "Focus on the buyer segment.", "has_sufficient_context": True, "missing_context": [], "citations": []}
     request = app_module.AdvisorRequest(
         question="What is the biggest risk?", idea="retry test idea",
@@ -567,20 +830,19 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
             failures.append("advisor: source labels or untrusted citation filtering failed")
         if "prior detail" not in invoke.call_args.args[0]:
             failures.append("advisor: conversation history missing from the prompt")
-    with patch.object(gemini_retry.time, "sleep"), patch.object(advisor_module.llm, "invoke", side_effect=unavailable):
-        try:
-            app_module.advise(request)
-            failures.append("advisor: 503 did not produce an HTTP error")
-        except HTTPException as error:
-            if error.status_code != 503 or "503" not in str(error.detail):
-                failures.append("advisor: 503 gave the wrong status/detail")
-    with patch.object(advisor_module.llm, "invoke", return_value=SimpleNamespace(text="not json")):
-        try:
-            app_module.advise(request)
-            failures.append("advisor: invalid reply did not produce an HTTP error")
-        except HTTPException as error:
-            if error.status_code != 502:
-                failures.append("advisor: invalid reply gave the wrong status")
+    with (
+        patch.object(advisor_module, "invoke_with_json_repair", side_effect=unavailable),
+        patch.object(advisor_module, "take_failure", return_value="GoogleRateLimitError: 429 RESOURCE_EXHAUSTED"),
+    ):
+        answer = app_module.advise(request)
+        if answer.get("analysis_mode") != "advisor_unavailable" or answer.get("citations") != []:
+            failures.append("advisor: provider failure did not return a labelled uncited response")
+        if "RESOURCE_EXHAUSTED" not in answer.get("analysis_note", ""):
+            failures.append("advisor: quota failure detail was not safely disclosed")
+    with patch.object(advisor_module, "invoke_with_json_repair", return_value=None):
+        answer = app_module.advise(request)
+        if answer.get("analysis_mode") != "advisor_unavailable" or answer.get("citations") != []:
+            failures.append("advisor: invalid reply did not return a labelled uncited response")
 
     # 8. Real HTTP layer (skipped if the test client's dependency is missing).
     try:
@@ -593,12 +855,25 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
         response = client.post("/advisor", json=body)
         if response.status_code != 200 or any(response.json().get(key) != value for key, value in good.items()):
             failures.append("HTTP /advisor with null context: {} {}".format(response.status_code, response.text[:100]))
-    with patch.object(gemini_retry.time, "sleep"), patch.object(advisor_module.llm, "invoke", side_effect=unavailable):
+    with (
+        patch.object(advisor_module, "invoke_with_json_repair", side_effect=unavailable),
+        patch.object(advisor_module, "take_failure", return_value="GoogleRateLimitError: 429 RESOURCE_EXHAUSTED"),
+    ):
         response = client.post("/advisor", json=body)
-        if response.status_code != 503 or "detail" not in response.json():
-            failures.append("HTTP /advisor 503 case: {} {}".format(response.status_code, response.text[:100]))
+        if response.status_code != 200 or response.json().get("analysis_mode") != "advisor_unavailable":
+            failures.append("HTTP /advisor fallback case: {} {}".format(response.status_code, response.text[:100]))
     if client.post("/advisor", json={"idea": "i"}).status_code != 422:
         failures.append("HTTP /advisor must still reject a request missing question")
+    frontend_script = (
+        Path(__file__).resolve().parents[1] / "frontend" / "script.js"
+    ).read_text(encoding="utf-8")
+    if (
+        frontend_script.count('className = "download-report"') != 1
+        or "downloadReport(data, reportButton)" not in frontend_script
+        or 'link.download = "litmus-validation-report.pdf"' not in frontend_script
+        or "startup-validation-report.html" in frontend_script
+    ):
+        failures.append("Frontend does not expose exactly one working PDF download action")
     with patch.object(pipeline_module, "search_idea", return_value=fixtures["search"]), \
             patch.object(pipeline_module, "analyse_market", return_value=fixtures["market"]), \
             patch.object(pipeline_module, "analyse_competitors", return_value=fixtures["competitors"]), \
@@ -609,8 +884,18 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
     if validated.status_code != 200 or validated.json().get("gtm") != fixtures["gtm"]:
         failures.append("HTTP /validate did not return the full pipeline result")
     else:
-        report = client.post("/report", json=validated.json())
-        if report.status_code != 200 or report.headers.get("content-type") != "application/pdf" or not report.content.startswith(b"%PDF"):
+        report = client.post(
+            "/report",
+            json=validated.json(),
+            headers={"Origin": "https://orbit-isb-7-0.vercel.app"},
+        )
+        if (
+            report.status_code != 200
+            or report.headers.get("content-type") != "application/pdf"
+            or not report.content.startswith(b"%PDF")
+            or "attachment; filename=" not in report.headers.get("content-disposition", "")
+            or "content-disposition" not in report.headers.get("access-control-expose-headers", "").lower()
+        ):
             failures.append("HTTP /report did not return a PDF attachment")
     return failures, None
 

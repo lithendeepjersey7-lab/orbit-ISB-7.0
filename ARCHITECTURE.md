@@ -346,9 +346,11 @@ the margin mattered. LangGraph also does not raise from an `async def` route,
 and a LangGraph node is an ordinary function that can be called and printed
 inside, whereas a CrewAI agent's behaviour is tuned by rewording its backstory.
 
-**Gemini's free tier, and `gemini-3.7-flash` specifically.** No credit card is
-required. `gemini-2.5-flash` is closed to new accounts, so the model list was
-queried from the API rather than copied from a tutorial.
+**Gemini model identifiers are deployment-sensitive.** The app uses
+`gemini-3.7-flash` as its configured primary and falls back to `gemini-3.8-flash`
+when the primary is overloaded or model-quota limited. A live API response
+confirmed `gemini-2.5-flash` is no longer available to new users, so it is not
+used as the fallback.
 
 **A thinking budget of 512 tokens.** Uncapped, the same competitor prompt took
 140.8 seconds on one run and 59.0 on another - the model decides how long to
@@ -364,10 +366,33 @@ covered in section 7.
 ## 10. Milestones 3 and 4: contracts and limitations
 
 `response_validation.py` enforces required JSON fields and nested types.
-Pipeline failures degrade partially and are reported; bounded retries apply
-only to transient Gemini 503 errors. The offline integration runner stubs all
-external providers and covers SaaS, consumer, hardware, marketplace, and
-EdTech ideas, including agent schemas, failures, advisor calls, and PDF output.
+Pipeline failures degrade partially and are reported. Transient Gemini 503 and
+500 INTERNAL errors receive one quick retry; if Gemini 3.7 Flash stays
+overloaded, the same prompt is sent to Gemini 3.8 Flash with one retry. A model-specific 429
+quota response switches models once without repeating the limited-model call.
+Project-wide quota exhaustion still requires an operator to restore quota or
+configure billing/API credentials. A malformed structured reply receives one
+bounded JSON-repair attempt. The offline integration runner stubs all external providers and covers SaaS,
+consumer, hardware, marketplace, and EdTech ideas, including agent schemas,
+failures, advisor calls, and PDF output.
+
+Downstream strategy agents continue from whatever market and competitor
+context is available. SWOT and MVP still run when both research stages fail;
+their clearly labelled fallback drafts use only the idea and mark the missing
+evidence instead of skipping these important sections.
+
+Market and competitor stages label unavailable synthesis and preserve relevant
+Tavily titles, URLs and snippets as reviewable leads; these are not verified
+findings, competitors, segments, or market claims. SWOT, MVP, and GTM return conservative,
+context-limited drafts when Gemini fails or produces unusable output. These
+responses include `analysis_mode` and `analysis_note`, and the pipeline surfaces
+a warning; they are not represented as model-generated analysis. The advisor
+returns an uncited insufficient-context message on provider failure rather than
+fabricating an answer or source.
+
+The results view has one report action: “Download PDF validation report.” It
+posts the current validation payload to `/report`, checks the PDF media type,
+and saves the returned bytes as a `.pdf` file.
 
 The browser carries up to four question/answer pairs into advisor follow-ups;
 there is no server-side user or session store. The advisor can use history to

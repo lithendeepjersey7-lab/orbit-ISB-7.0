@@ -4,11 +4,11 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
-    from response_validation import parse_json_response
-    from gemini_retry import invoke_with_retry
+    from response_validation import invoke_with_json_repair, parse_json_response
+    from gemini_retry import invoke_with_retry, take_failure
 except ImportError:
-    from agents.response_validation import parse_json_response
-    from agents.gemini_retry import invoke_with_retry
+    from agents.response_validation import invoke_with_json_repair, parse_json_response
+    from agents.gemini_retry import invoke_with_retry, take_failure
 
 load_dotenv()
 
@@ -92,9 +92,29 @@ def answer_follow_up(question, idea, market, competitors, swot, mvp, gtm, histor
     """Answer a follow-up from pipeline context, or return None on failure."""
     prompt = build_prompt(question, idea, market, competitors, swot, mvp, gtm, history, sources)
     try:
-        reply = invoke_with_retry(llm, prompt, "Advisor agent")
-        response_text = getattr(reply, "text", None)
+        result = invoke_with_json_repair(
+            llm, prompt, "Advisor agent", RESPONSE_SCHEMA, invoke_with_retry
+        )
     except Exception as error:
         print("Startup advisor failed:", error)
-        return None
-    return parse_json(response_text)
+        result = None
+    answer = parse_json(json.dumps(result)) if result is not None else None
+    if answer is not None:
+        return answer
+    return {
+        "answer": (
+            "The AI advisor could not produce a reliable response, so I can't "
+            "answer this from the supplied validation. Please use the available "
+            "report sections and try again later; no unsupported answer or citation "
+            "has been generated."
+        ),
+        "has_sufficient_context": False,
+        "missing_context": [
+            "A successful advisor response grounded in the supplied analysis is unavailable."
+        ],
+        "citations": [],
+        "analysis_mode": "advisor_unavailable",
+        "analysis_note": take_failure() or (
+            "No reliable advisor response could be generated from the available context."
+        ),
+    }
