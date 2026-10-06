@@ -12,6 +12,18 @@ const submitButton = document.getElementById("submit");
 const statusLine = document.getElementById("status");
 const resultsBox = document.getElementById("results");
 const ideaForm = document.getElementById("idea-form");
+const advisorDock = document.getElementById("advisor-dock");
+const advisorToggle = document.getElementById("advisor-toggle");
+
+advisorToggle.addEventListener("click", function () {
+  const isOpen = document.body.classList.toggle("advisor-dock-open");
+  advisorToggle.setAttribute("aria-expanded", String(isOpen));
+  advisorToggle.textContent = isOpen ? "Close advisor" : "Ask Litmus";
+  if (isOpen) {
+    const input = advisorDock.querySelector("textarea");
+    if (input) input.focus();
+  }
+});
 
 ideaForm.addEventListener("submit", function (event) {
   event.preventDefault();
@@ -162,7 +174,14 @@ function showResults(data) {
   if (data.swot) resultsBox.appendChild(buildSwot(data.swot));
   if (data.mvp) resultsBox.appendChild(buildMvp(data.mvp));
   if (data.gtm) resultsBox.appendChild(buildGtm(data.gtm));
-  resultsBox.appendChild(buildAdvisor(data));
+  advisorDock.replaceChildren(buildAdvisor(data));
+  advisorDock.hidden = false;
+  advisorToggle.hidden = false;
+  if (window.matchMedia("(min-width: 1800px)").matches) {
+    document.body.classList.add("advisor-dock-open");
+    advisorToggle.setAttribute("aria-expanded", "true");
+    advisorToggle.textContent = "Close advisor";
+  }
 
   const evidence = document.createElement("details");
   evidence.className = "source-evidence";
@@ -282,6 +301,9 @@ function buildValidationOverview(data) {
   advisorLink.className = "overview-link";
   advisorLink.href = "#advisor";
   advisorLink.textContent = "Ask the advisor";
+  advisorLink.addEventListener("click", function () {
+    openAdvisorDock();
+  });
   actions.appendChild(advisorLink);
   intro.appendChild(actions);
   card.appendChild(intro);
@@ -661,6 +683,7 @@ function addAskButton(box, title) {
   ask.className = "ask-about";
   ask.textContent = "Ask about this";
   ask.addEventListener("click", function () {
+    openAdvisorDock();
     const advisor = document.querySelector(".advisor textarea");
     if (!advisor) return;
     advisor.value = "Explain the " + title.toLowerCase() + " findings and their implications.";
@@ -769,6 +792,13 @@ function buildAdvisor(data) {
   sourceHint.className = "source-label source-label--report";
   sourceHint.textContent = "Grounded in this report";
   header.appendChild(sourceHint);
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "advisor-close";
+  closeButton.setAttribute("aria-label", "Close advisor panel");
+  closeButton.textContent = "×";
+  closeButton.addEventListener("click", closeAdvisorDock);
+  header.appendChild(closeButton);
   box.appendChild(header);
 
   const description = document.createElement("p");
@@ -907,6 +937,20 @@ function buildAdvisor(data) {
   });
 
   return box;
+}
+
+function openAdvisorDock() {
+  if (advisorDock.hidden) return;
+  document.body.classList.add("advisor-dock-open");
+  advisorToggle.setAttribute("aria-expanded", "true");
+  advisorToggle.textContent = "Close advisor";
+}
+
+function closeAdvisorDock() {
+  document.body.classList.remove("advisor-dock-open");
+  advisorToggle.setAttribute("aria-expanded", "false");
+  advisorToggle.textContent = "Ask Litmus";
+  advisorToggle.focus();
 }
 
 function buildAdvisorMessage(role, text, result) {
