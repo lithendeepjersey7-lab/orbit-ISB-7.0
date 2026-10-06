@@ -922,6 +922,13 @@ function buildAdvisorMessage(role, text, result) {
   content.textContent = text;
   article.appendChild(content);
 
+  if (result && result.analysis_mode === "conservative_fallback") {
+    const note = document.createElement("p");
+    note.className = "advisor-fallback-note";
+    note.textContent = "Report-based fallback · Gemini is temporarily unavailable";
+    article.appendChild(note);
+  }
+
   if (result && result.has_sufficient_context === false && Array.isArray(result.missing_context) && result.missing_context.length) {
     const missing = document.createElement("p");
     missing.className = "advisor-missing";

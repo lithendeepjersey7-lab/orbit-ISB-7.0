@@ -808,6 +808,32 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
     request = app_module.AdvisorRequest(
         question="What is the biggest risk?", idea="retry test idea",
         market=fixtures["market"], competitors=None,
+        swot={
+            "risks": [{
+                "risk": "Customers may not pay for the workflow.",
+                "likelihood": "medium",
+                "impact": "high",
+                "mitigation": "Offer a paid pilot to interviewees.",
+            }],
+            "analysis_mode": "conservative_fallback",
+        },
+        mvp={
+            "must_have_features": [
+                {"feature": "Pose feedback", "why_important": "Tests the stated problem."},
+            ],
+            "prioritization_rationale": "Validate one exercise with a guided pilot.",
+            "analysis_mode": "conservative_fallback",
+        },
+        gtm={
+            "early_target_customers": [{"segment": "Home fitness beginners"}],
+            "first_100_users": {"plan": ["Interview users", "Recruit a small pilot"]},
+            "monetization": {
+                "model": "Not selected",
+                "pricing_hypothesis": "Test through a pilot",
+                "validation_test": "Offer a paid pilot",
+            },
+            "analysis_mode": "conservative_fallback",
+        },
         results=fixtures["search"]["results"],
         conversation_history=[{"role": "user", "content": "prior detail"}],
     )
@@ -835,14 +861,34 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
         patch.object(advisor_module, "take_failure", return_value="GoogleRateLimitError: 429 RESOURCE_EXHAUSTED"),
     ):
         answer = app_module.advise(request)
-        if answer.get("analysis_mode") != "advisor_unavailable" or answer.get("citations") != []:
-            failures.append("advisor: provider failure did not return a labelled uncited response")
-        if "RESOURCE_EXHAUSTED" not in answer.get("analysis_note", ""):
-            failures.append("advisor: quota failure detail was not safely disclosed")
+        if answer.get("analysis_mode") != "conservative_fallback":
+            failures.append("advisor: provider failure did not return a labelled report-grounded fallback")
+        if "Customers may not pay" not in answer.get("answer", "") or "paid pilot" not in answer.get("answer", ""):
+            failures.append("advisor: fallback did not answer the risk question from SWOT context")
+        if not any(item.get("id") == "report:swot" for item in answer.get("citations", [])):
+            failures.append("advisor: fallback risk answer did not cite its SWOT report section")
+        request.question = "Which MVP feature should we build first?"
+        answer = app_module.advise(request)
+        if "Pose feedback" not in answer.get("answer", "") or not any(
+            item.get("id") == "report:mvp" for item in answer.get("citations", [])
+        ):
+            failures.append("advisor: fallback did not cite the MVP feature recommendation")
+        request.question = "How should we find the first 100 users?"
+        answer = app_module.advise(request)
+        if "Home fitness beginners" not in answer.get("answer", "") or not any(
+            item.get("id") == "report:gtm" for item in answer.get("citations", [])
+        ):
+            failures.append("advisor: fallback did not cite the GTM first-user plan")
+        request.question = "What is the pricing?"
+        answer = app_module.advise(request)
+        if "willingness to pay" not in answer.get("answer", "") or not any(
+            item.get("id") == "report:gtm" for item in answer.get("citations", [])
+        ):
+            failures.append("advisor: fallback did not cite the pricing hypothesis")
     with patch.object(advisor_module, "invoke_with_json_repair", return_value=None):
         answer = app_module.advise(request)
-        if answer.get("analysis_mode") != "advisor_unavailable" or answer.get("citations") != []:
-            failures.append("advisor: invalid reply did not return a labelled uncited response")
+        if answer.get("analysis_mode") != "conservative_fallback" or not answer.get("answer"):
+            failures.append("advisor: invalid model reply did not return a useful labelled fallback")
 
     # 8. Real HTTP layer (skipped if the test client's dependency is missing).
     try:
@@ -860,7 +906,7 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
         patch.object(advisor_module, "take_failure", return_value="GoogleRateLimitError: 429 RESOURCE_EXHAUSTED"),
     ):
         response = client.post("/advisor", json=body)
-        if response.status_code != 200 or response.json().get("analysis_mode") != "advisor_unavailable":
+        if response.status_code != 200 or response.json().get("analysis_mode") != "conservative_fallback":
             failures.append("HTTP /advisor fallback case: {} {}".format(response.status_code, response.text[:100]))
     if client.post("/advisor", json={"idea": "i"}).status_code != 422:
         failures.append("HTTP /advisor must still reject a request missing question")
