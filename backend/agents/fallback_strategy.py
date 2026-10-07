@@ -5,6 +5,7 @@ import re
 
 _PROFILES = (
     {
+        "industry": "bicycle_repair",
         "keys": ("bicycle repair", "bike repair", "bike shop", "bicycle shop", "bike maintenance"),
         "audience": "Owners and managers of independent bicycle repair shops",
         "workflow": "accept repair appointment requests, organize workshop jobs, and keep customers updated",

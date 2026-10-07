@@ -144,7 +144,7 @@ def _fallback_analysis(results, idea=""):
         if market_sources
         else "Candidate customer segments are inferred from the submitted idea; market size and demand are not established."
     )
-    is_bicycle_repair = profile["market_segments"][0]["name"] == "Owners and managers of independent bicycle repair shops"
+    is_bicycle_repair = profile.get("industry") == "bicycle_repair"
     return {
         "market_summary": summary,
         "market_size": (
