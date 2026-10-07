@@ -603,6 +603,8 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
     the retry/error handling logic only. It does not prove live Gemini behaviour.
     """
     gemini_retry = importlib.import_module("agents.gemini_retry")
+    with gemini_retry._quota_cooldown_lock:
+        gemini_retry._quota_cooldown_until = 0.0
     market_module = importlib.import_module("agents.market_agent")
     competitor_module = importlib.import_module("agents.competitor_agent")
     advisor_module = importlib.import_module("agents.advisor_agent")
@@ -713,6 +715,41 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
     ):
         failures.append("retry: quota-limited model was retried or alternate-model fallback failed")
 
+    # If both models report exhausted quota, later stages skip repeat calls
+    # and immediately use local drafts.
+    fallback_calls.clear()
+
+    def fallback_429(prompt):
+        fallback_calls.append(prompt)
+        raise quota_error
+
+    try:
+        gemini_retry.invoke_with_retry(
+            SimpleNamespace(model=primary_llm.model, invoke=primary_429),
+            "exhausted quota prompt",
+            "Test agent",
+            max_attempts=2,
+            fallback_factory=lambda primary: SimpleNamespace(
+                model="gemini-3.8-flash", invoke=fallback_429
+            ),
+        )
+        failures.append("retry: two-model quota exhaustion did not raise")
+    except FakeApiError:
+        pass
+    skipped_calls = []
+    try:
+        gemini_retry.invoke_with_retry(
+            SimpleNamespace(invoke=lambda prompt: skipped_calls.append(prompt)),
+            "cooldown prompt",
+            "Test agent",
+        )
+        failures.append("retry: quota cooldown did not preserve local fallback behavior")
+    except RuntimeError as error:
+        if "quota was recently exhausted" not in str(error) or skipped_calls:
+            failures.append("retry: quota cooldown repeated a provider call or lost its reason")
+    with gemini_retry._quota_cooldown_lock:
+        gemini_retry._quota_cooldown_until = 0.0
+
     # The fallback is also bounded, and errors explain both failed models.
     fallback_calls.clear()
 
@@ -746,11 +783,18 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
             raise error
         with patch.object(gemini_retry.time, "sleep") as sleep:
             try:
-                gemini_retry.invoke_with_retry(SimpleNamespace(invoke=raises), "p", "Test agent")
+                gemini_retry.invoke_with_retry(
+                    SimpleNamespace(invoke=raises),
+                    "p",
+                    "Test agent",
+                    fallback_factory=lambda primary: None,
+                )
             except Exception:
                 pass
             if len(calls) != 1 or sleep.call_count:
                 failures.append("retry: non-transient error {!r} was retried".format(error))
+        with gemini_retry._quota_cooldown_lock:
+            gemini_retry._quota_cooldown_until = 0.0
     gemini_retry.take_failure()
 
     # 4. Error text is shortened and API keys are redacted.

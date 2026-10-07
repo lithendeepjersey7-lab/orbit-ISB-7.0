@@ -29,6 +29,7 @@ import time
 MAX_ATTEMPTS = 2
 FALLBACK_MODEL = "gemini-3.8-flash"
 BASE_DELAY_SECONDS = 1.5  # fail over quickly enough to preserve the request budget
+QUOTA_COOLDOWN_SECONDS = 300
 
 # The last agent-call failure seen by THIS thread. The pipeline runs each node
 # in a worker thread and reads this straight after the agent returns, in the
@@ -37,6 +38,8 @@ BASE_DELAY_SECONDS = 1.5  # fail over quickly enough to preserve the request bud
 _local = threading.local()
 _fallback_lock = threading.Lock()
 _fallback_llm = None
+_quota_cooldown_lock = threading.Lock()
+_quota_cooldown_until = 0.0
 
 
 def is_transient(error):
@@ -112,8 +115,20 @@ def _create_fallback_model(primary):
                     model=FALLBACK_MODEL,
                     thinking_budget=512,
                     max_retries=0,
+                    request_timeout=15,
                 )
     return _fallback_llm
+
+
+def _quota_cooldown_remaining():
+    with _quota_cooldown_lock:
+        return max(0.0, _quota_cooldown_until - time.monotonic())
+
+
+def _start_quota_cooldown():
+    global _quota_cooldown_until
+    with _quota_cooldown_lock:
+        _quota_cooldown_until = time.monotonic() + QUOTA_COOLDOWN_SECONDS
 
 
 def invoke_with_retry(
@@ -131,6 +146,13 @@ def invoke_with_retry(
     Gemini 3.8 Flash with the same prompt. Other failures are re-raised.
     """
     _local.failure = None
+    cooldown = _quota_cooldown_remaining()
+    if cooldown:
+        _local.failure = (
+            "Gemini quota was recently exhausted; skipped repeated provider calls "
+            "for {:.0f}s and used the local fallback".format(cooldown)
+        )
+        raise RuntimeError(_local.failure)
     try:
         return _invoke_model(llm, prompt, agent_name, max_attempts)
     except Exception as primary_error:
@@ -142,6 +164,8 @@ def invoke_with_retry(
     try:
         fallback = fallback_factory(llm)
     except Exception as error:
+        if is_model_quota_limited(last_primary_error):
+            _start_quota_cooldown()
         _local.failure = (
             "Gemini primary model failed (%s); fallback %s could not be configured (%s)"
             % (
@@ -152,6 +176,8 @@ def invoke_with_retry(
         )
         raise
     if fallback is None:
+        if is_model_quota_limited(last_primary_error):
+            _start_quota_cooldown()
         suffix = " after %d attempts" % max_attempts
         _local.failure = "Gemini temporarily unavailable%s (%s)" % (
             suffix,
@@ -169,6 +195,11 @@ def invoke_with_retry(
             max_attempts,
         )
     except Exception as fallback_error:
+        if (
+            is_model_quota_limited(last_primary_error)
+            or is_model_quota_limited(fallback_error)
+        ):
+            _start_quota_cooldown()
         _local.failure = (
             "Gemini primary model unavailable after %d attempts (%s); fallback %s "
             "failed after %d attempts (%s)"

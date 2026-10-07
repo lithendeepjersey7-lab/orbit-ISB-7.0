@@ -24,7 +24,9 @@ def run_one_search(angle):
     """Run one Tavily search. Returns (category, query, response) or None on failure."""
     category, query = angle
     try:
-        response = client.search(query, max_results=5, include_answer=True)
+        response = client.search(
+            query, max_results=5, include_answer=True, timeout=15
+        )
     except Exception as error:
         print("Search failed for:", query, "-", error)
         return category, query, None

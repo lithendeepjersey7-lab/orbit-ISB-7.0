@@ -24,7 +24,8 @@ THINKING_BUDGET = 512
 # max_retries=0 turns off the client's own hidden retries (default 6, which
 # include 429). Retrying is handled by gemini_retry.invoke_with_retry.
 llm = ChatGoogleGenerativeAI(
-    model=MODEL, thinking_budget=THINKING_BUDGET, max_retries=0
+    model=MODEL, thinking_budget=THINKING_BUDGET, max_retries=0,
+    request_timeout=15,
 )
 
 
