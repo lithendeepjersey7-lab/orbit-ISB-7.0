@@ -638,7 +638,7 @@ function buildErrors(errors) {
   const explanation = document.createElement("p");
   if (hasQuotaError) {
     explanation.textContent =
-      "Gemini’s request quota is exhausted. Market and competitor sections may show search leads rather than verified analysis; other affected sections are clearly marked as conservative drafts. Search evidence and the PDF report are still available.";
+      "Gemini’s free request quota is exhausted. You do not need to pay to keep using Litmus: search, the advisor, PDF reports, and clearly labelled strategy drafts remain available. Market and competitor sections may show search leads rather than verified analysis. Full Gemini analysis can resume when free quota is available again.";
   } else {
     explanation.textContent =
       "The pipeline returned the sections it could complete. Any unavailable sections are identified below; available research and the PDF report remain usable.";
@@ -650,15 +650,6 @@ function buildErrors(errors) {
     affected.className = "run-notice__affected";
     affected.textContent = "Affected agents: " + failedAgents.join(", ") + ".";
     box.appendChild(affected);
-  }
-
-  if (hasQuotaError) {
-    const help = document.createElement("a");
-    help.href = "https://aistudio.google.com/";
-    help.target = "_blank";
-    help.rel = "noopener noreferrer";
-    help.textContent = "Check Gemini quota and billing ↗";
-    box.appendChild(help);
   }
 
   const technical = document.createElement("details");
