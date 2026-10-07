@@ -1083,13 +1083,18 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
         or "All five report sections are included" not in frontend_script
     ):
         failures.append("Complete fallback reports must use a neutral free-mode notice, not an error warning")
-    if (
-        "Report sections ready" not in frontend_script
-        or "AI-synthesized" not in frontend_script
-        or "report sections ready" not in frontend_script
-        or "Coverage describes completed AI analyses" in frontend_script
+    if any(
+        label in frontend_script
+        for label in (
+            "AI analysis coverage",
+            "analysis sections completed",
+            "AI-synthesized",
+            "getAnalysisCoverage",
+        )
     ):
-        failures.append("Frontend must distinguish populated report sections from AI-synthesized sections")
+        failures.append("Results overview must not display an analysis coverage metric")
+    if ".coverage-note" in frontend_styles or ".coverage-progress" in frontend_styles:
+        failures.append("Unused analysis coverage styles must be removed")
     with patch.object(pipeline_module, "search_idea", return_value=fixtures["search"]), \
             patch.object(pipeline_module, "analyse_market", return_value=fixtures["market"]), \
             patch.object(pipeline_module, "analyse_competitors", return_value=fixtures["competitors"]), \
