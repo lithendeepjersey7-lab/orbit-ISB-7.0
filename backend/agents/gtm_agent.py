@@ -167,9 +167,7 @@ def _fallback_strategy(idea, market):
             "success_signal": "A repeatable source of qualified pilot users and evidence that users return to complete the core task.",
         },
         "monetization": {
-            "model": "Not selected; validate who pays and what outcome they value before choosing a model.",
-            "pricing_hypothesis": "No price point is supported by the available evidence; test willingness to pay through customer interviews and a clearly described pilot offer.",
-            "validation_test": "Compare stated interest with concrete commitments to a pilot or paid trial; do not treat stated intent alone as proof.",
+            **profile["pricing"],
         },
         "first_90_days": {
             "days_1_30": [

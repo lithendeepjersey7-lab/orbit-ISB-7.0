@@ -111,7 +111,9 @@ def _fallback_recommendation(idea, market, competitors):
         profile["audience"],
     )
     market_gap = str(competitors.get("market_gaps") or "").strip()
-    core_feature = profile["must"][0][0] + " to " + profile["workflow_text"]
+    core_feature = profile["must"][0][0]
+    if core_feature == "A minimal end-to-end core workflow":
+        core_feature += " to " + profile["workflow_text"]
     pilot_feature = profile["must"][1][0]
     onboarding_feature = profile["should"][0]
     extension_feature = profile["later"][0]

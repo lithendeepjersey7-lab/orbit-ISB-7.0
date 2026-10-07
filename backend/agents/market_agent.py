@@ -6,9 +6,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 try:
     from response_validation import invoke_with_json_repair, parse_json_response
     from gemini_retry import invoke_with_retry
+    from fallback_strategy import fallback_profile
 except ImportError:
     from agents.response_validation import invoke_with_json_repair, parse_json_response
     from agents.gemini_retry import invoke_with_retry
+    from agents.fallback_strategy import fallback_profile
 
 load_dotenv()
 
@@ -119,7 +121,8 @@ def build_prompt(idea, evidence):
     )
 
 
-def _fallback_analysis(results):
+def _fallback_analysis(results, idea=""):
+    profile = fallback_profile(idea)
     evidence = [
         {
             "title": str(item.get("title") or "Untitled source")[:160],
@@ -137,27 +140,27 @@ def _fallback_analysis(results):
     if not market_sources:
         market_sources = evidence[:5]
     summary = (
-        "Gemini synthesis is unavailable. The following are search-result leads "
-        "only, not verified market findings."
+        "Candidate customer segments are inferred from the submitted idea. Search leads below provide context but are not independently verified market findings."
         if market_sources
-        else "No source-grounded market analysis or usable search leads are available."
+        else "Candidate customer segments are inferred from the submitted idea; market size and demand are not established."
     )
+    is_bicycle_repair = profile["market_segments"][0]["name"] == "Owners and managers of independent bicycle repair shops"
     return {
         "market_summary": summary,
-        "market_size": "Not assessed: no reliable market-size estimate can be produced without verifiable sources.",
-        "growth_and_demand": "Not assessed: demand and growth claims require current, relevant evidence.",
-        "segments": [],
+        "market_size": (
+            "Not established for bicycle-repair scheduling software. Search leads include broader bicycle-industry figures, which should not be treated as this product's addressable market."
+            if is_bicycle_repair
+            else "Not assessed: no reliable market-size estimate can be produced without verifiable sources."
+        ),
+        "growth_and_demand": "The search leads do not establish demand or growth for this exact product category. Validate the task frequency and current workaround with candidate customers.",
+        "segments": profile["market_segments"],
         "source_findings": market_sources,
         "evidence_gaps": (
-            "Customer segments, market size, growth, and willingness to pay could "
-            "not be validated from this run. Verify these claims against current "
-            "sources and customer research before making decisions."
+            "Segments shown are hypotheses inferred from the idea. Market size, growth, and willingness to pay were not validated in this run; verify with current sources and customer research before making decisions."
         ),
         "analysis_mode": "evidence_summary" if market_sources else "analysis_unavailable",
         "analysis_note": (
-            "Gemini could not synthesize the results. Source leads are shown "
-            "verbatim for manual review; no market-size, trend, or customer "
-            "claim has been inferred from them."
+            "Model synthesis was unavailable. Candidate segments are clearly identified as hypotheses; source leads are shown for review and do not validate market size, trends, or customer demand."
         ),
     }
 
@@ -169,7 +172,7 @@ def analyse_market(idea, results):
     model fails or its output cannot be validated.
     """
     if not results:
-        return _fallback_analysis([])
+        return _fallback_analysis([], idea)
     evidence = condense(results)
     prompt = build_prompt(idea, evidence)
     try:
@@ -178,11 +181,11 @@ def analyse_market(idea, results):
         )
     except Exception as error:
         print("Market agent failed:", error)
-        return _fallback_analysis(results)
+        return _fallback_analysis(results, idea)
     if result is None or len(result["segments"]) > 3:
-        return _fallback_analysis(results)
+        return _fallback_analysis(results, idea)
     if any(segment["side"] not in {"buyer", "supply", "both", "n/a"} for segment in result["segments"]):
-        return _fallback_analysis(results)
+        return _fallback_analysis(results, idea)
     return result
 
 

@@ -428,19 +428,31 @@ def _run_idea_specific_fallback_checks():
     swot_module = importlib.import_module("agents.swot_agent")
     mvp_module = importlib.import_module("agents.mvp_agent")
     gtm_module = importlib.import_module("agents.gtm_agent")
+    market_module = importlib.import_module("agents.market_agent")
     cases = (
+        (
+            "An appointment app that helps independent bicycle repair shops schedule repairs and update customers",
+            "bicycle repair",
+            "bicycle repair",
+        ),
         (
             "A mobile app that helps university students find study groups for difficult courses",
             "Course, topic, and availability preferences",
+            "university students",
         ),
-        ("AI-powered inventory management for small retailers", "stock"),
-        ("Smart meal planning app for busy families", "meal"),
-        ("Low-cost smart water monitoring device for homes", "sensor"),
-        ("Marketplace connecting local photographers with customers", "provider"),
-        ("Adaptive learning platform for engineering students", "learning"),
+        ("AI-powered inventory management for small retailers", "stock", "retailers"),
+        ("Smart meal planning app for busy families", "meal", "households"),
+        ("Low-cost smart water monitoring device for homes", "sensor", "households"),
+        ("Marketplace connecting local photographers with customers", "provider", "buyer"),
+        ("Adaptive learning platform for engineering students", "learning", "students"),
+        (
+            "A simple scheduling platform that helps veterinarians manage appointment reminders",
+            "veterinarians",
+            "veterinarians",
+        ),
     )
     failures = []
-    for idea, expected in cases:
+    for idea, expected, expected_market_segment in cases:
         market = {"segments": [], "analysis_mode": "evidence_summary"}
         competitors = {
             "competitors": [],
@@ -450,7 +462,9 @@ def _run_idea_specific_fallback_checks():
         swot = swot_module._fallback_analysis(idea, market, competitors)
         mvp = mvp_module._fallback_recommendation(idea, market, competitors)
         gtm = gtm_module._fallback_strategy(idea, market)
+        market_fallback = market_module._fallback_analysis([], idea)
         combined = json.dumps({"swot": swot, "mvp": mvp, "gtm": gtm}).casefold()
+        market_combined = json.dumps(market_fallback).casefold()
         if expected.casefold() not in combined:
             failures.append("idea-specific fallback did not include {!r} for {!r}".format(expected, idea))
         if not all(
@@ -462,6 +476,12 @@ def _run_idea_specific_fallback_checks():
             failures.append("structured risk/mitigation missing for {!r}".format(idea))
         if not mvp["build_phases"] or not gtm["first_100_users"]["plan"]:
             failures.append("MVP phases or GTM acquisition plan missing for {!r}".format(idea))
+        if expected_market_segment.casefold() not in market_combined or not market_fallback["segments"]:
+            failures.append("market fallback did not provide a candidate segment for {!r}".format(idea))
+        if not all(market_fallback.get(key) for key in (
+            "market_summary", "market_size", "growth_and_demand", "evidence_gaps"
+        )):
+            failures.append("market fallback omitted a report field for {!r}".format(idea))
     return failures
 
 
@@ -999,6 +1019,9 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
     frontend_script = (
         Path(__file__).resolve().parents[1] / "frontend" / "script.js"
     ).read_text(encoding="utf-8")
+    frontend_styles = (
+        Path(__file__).resolve().parents[1] / "frontend" / "style.css"
+    ).read_text(encoding="utf-8")
     if (
         frontend_script.count('className = "download-report"') != 1
         or "downloadReport(data, reportButton)" not in frontend_script
@@ -1012,6 +1035,13 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
         or "You do not need to pay to keep using Litmus" not in frontend_script
     ):
         failures.append("Quota notice must explain free fallback without directing users to billing")
+    if (
+        "Free-mode analysis is ready" not in frontend_script
+        or "run-notice--fallback" not in frontend_script
+        or ".run-notice--fallback" not in frontend_styles
+        or "All five report sections are included" not in frontend_script
+    ):
+        failures.append("Complete fallback reports must use a neutral free-mode notice, not an error warning")
     with patch.object(pipeline_module, "search_idea", return_value=fixtures["search"]), \
             patch.object(pipeline_module, "analyse_market", return_value=fixtures["market"]), \
             patch.object(pipeline_module, "analyse_competitors", return_value=fixtures["competitors"]), \
