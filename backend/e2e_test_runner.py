@@ -962,6 +962,12 @@ def _run_retry_and_advisor_checks(app_module, pipeline_module):
         or "startup-validation-report.html" in frontend_script
     ):
         failures.append("Frontend does not expose exactly one working PDF download action")
+    if (
+        "https://aistudio.google.com/" in frontend_script
+        or "quota and billing" in frontend_script.casefold()
+        or "You do not need to pay to keep using Litmus" not in frontend_script
+    ):
+        failures.append("Quota notice must explain free fallback without directing users to billing")
     with patch.object(pipeline_module, "search_idea", return_value=fixtures["search"]), \
             patch.object(pipeline_module, "analyse_market", return_value=fixtures["market"]), \
             patch.object(pipeline_module, "analyse_competitors", return_value=fixtures["competitors"]), \
