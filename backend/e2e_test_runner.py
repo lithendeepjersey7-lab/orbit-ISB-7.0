@@ -476,6 +476,8 @@ def _run_idea_specific_fallback_checks():
             failures.append("structured risk/mitigation missing for {!r}".format(idea))
         if not mvp["build_phases"] or not gtm["first_100_users"]["plan"]:
             failures.append("MVP phases or GTM acquisition plan missing for {!r}".format(idea))
+        if "bicycle repair" in idea.casefold() and len(mvp["must_have_features"]) < 3:
+            failures.append("bicycle-repair fallback omitted a core appointment/status MVP feature")
         if expected_market_segment.casefold() not in market_combined or not market_fallback["segments"]:
             failures.append("market fallback did not provide a candidate segment for {!r}".format(idea))
         if not all(market_fallback.get(key) for key in (

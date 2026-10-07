@@ -114,7 +114,7 @@ def _fallback_analysis(idea, market, competitors):
         if isinstance(company, dict) and company.get("name", "").strip()
     ]
     market_gap = str(competitors.get("market_gaps") or "").strip()
-    audience = ", ".join(segment_names[:2]) or profile["audience"]
+    audience = segment_names[0] if segment_names else profile["audience"]
     gap_statement = (
         "The available competitor search did not validate a specific unmet need. "
         "Test whether customers need " + profile["workflow_text"] + "."

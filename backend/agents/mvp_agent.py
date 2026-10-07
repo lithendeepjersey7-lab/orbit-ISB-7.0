@@ -111,10 +111,11 @@ def _fallback_recommendation(idea, market, competitors):
         profile["audience"],
     )
     market_gap = str(competitors.get("market_gaps") or "").strip()
-    core_feature = profile["must"][0][0]
-    if core_feature == "A minimal end-to-end core workflow":
-        core_feature += " to " + profile["workflow_text"]
-    pilot_feature = profile["must"][1][0]
+    core_features = [feature for feature, _ in profile["must"]]
+    if core_features[0] == "A minimal end-to-end core workflow":
+        core_features[0] += " to " + profile["workflow_text"]
+    core_rationales = [why for _, why in profile["must"]]
+    pilot_feature = core_features[-1]
     onboarding_feature = profile["should"][0]
     extension_feature = profile["later"][0]
 
@@ -122,14 +123,8 @@ def _fallback_recommendation(idea, market, competitors):
         "target_audience": primary_segment,
         "product_summary": idea.strip(),
         "must_have_features": [
-            {
-                "feature": core_feature,
-                "why_important": profile["must"][0][1],
-            },
-            {
-                "feature": pilot_feature,
-                "why_important": profile["must"][1][1],
-            },
+            {"feature": feature, "why_important": rationale}
+            for feature, rationale in zip(core_features, core_rationales)
         ],
         "should_have_features": [
             {
@@ -146,7 +141,7 @@ def _fallback_recommendation(idea, market, competitors):
         "build_phases": [
             {
                 "phase": "Phase 1 - Validate the core workflow",
-                "features": [core_feature, pilot_feature],
+                "features": core_features,
                 "exit_criteria": "Target users can complete the core task in a guided pilot and provide specific feedback.",
             },
             {
