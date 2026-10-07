@@ -162,7 +162,7 @@ function showResults(data) {
   resultsBox.appendChild(buildSectionNav(data));
 
   if (data.errors && data.errors.length) {
-    resultsBox.appendChild(buildErrors(data.errors));
+    resultsBox.appendChild(buildErrors(data.errors, data));
   }
 
   latestValidation = data;
@@ -614,13 +614,22 @@ function buildCompetitors(data) {
   return box;
 }
 
-function buildErrors(errors) {
+function buildErrors(errors, data) {
   const box = document.createElement("section");
-  box.className = "run-notice";
+  const sections = ["market", "competitors", "swot", "mvp", "gtm"];
+  const hasCompleteFallback = sections.every(function (key) {
+    return data && data[key] && typeof data[key] === "object";
+  });
+  box.className = hasCompleteFallback
+    ? "run-notice run-notice--fallback"
+    : "run-notice";
   box.setAttribute("aria-label", "Validation limitations");
 
   const hasQuotaError = errors.some(function (error) {
     return /429|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(error);
+  });
+  const hasTimeout = errors.some(function (error) {
+    return /504|DEADLINE_EXCEEDED|timed?\s*out/i.test(error);
   });
   const failedAgents = [];
   for (const agent of ["Market", "Competitor", "SWOT", "MVP", "GTM"]) {
@@ -630,13 +639,20 @@ function buildErrors(errors) {
   }
 
   const heading = document.createElement("h3");
-  heading.textContent = hasQuotaError
-    ? "AI provider quota reached — partial results are available"
-    : "Some analysis could not be completed";
+  heading.textContent = hasCompleteFallback
+    ? "Free-mode analysis is ready"
+    : hasQuotaError
+      ? "AI provider quota reached — partial results are available"
+      : "Some analysis could not be completed";
   box.appendChild(heading);
 
   const explanation = document.createElement("p");
-  if (hasQuotaError) {
+  if (hasCompleteFallback) {
+    explanation.textContent =
+      "All five report sections are included. Some use clearly labelled, idea-specific drafts and search leads because the AI service " +
+      (hasTimeout ? "timed out" : hasQuotaError ? "has reached its free quota" : "was unavailable") +
+      ". Market size and competitor claims are not presented as verified unless supported by the available evidence.";
+  } else if (hasQuotaError) {
     explanation.textContent =
       "Gemini’s free request quota is exhausted. You do not need to pay to keep using Litmus: search, the advisor, PDF reports, and clearly labelled strategy drafts remain available. Market and competitor sections may show search leads rather than verified analysis. Full Gemini analysis can resume when free quota is available again.";
   } else {
@@ -645,7 +661,7 @@ function buildErrors(errors) {
   }
   box.appendChild(explanation);
 
-  if (failedAgents.length) {
+  if (failedAgents.length && !hasCompleteFallback) {
     const affected = document.createElement("p");
     affected.className = "run-notice__affected";
     affected.textContent = "Affected agents: " + failedAgents.join(", ") + ".";
@@ -716,10 +732,16 @@ function buildGenericAnalysis(title, data) {
   heading.textContent = title;
   box.appendChild(heading);
 
-  if (data && typeof data === "object" && data.analysis_mode === "fallback") {
+  if (data && typeof data === "object" && data.analysis_mode) {
     const notice = document.createElement("p");
     notice.className = "analysis-status";
-    notice.textContent = data.analysis_note || "Conservative fallback; model-generated analysis was unavailable.";
+    notice.textContent = data.analysis_note || (
+      data.analysis_mode === "conservative_fallback"
+        ? "Idea-specific draft; not model-generated or market-validated."
+        : data.analysis_mode === "evidence_summary"
+          ? "Search leads and candidate segments; not verified market or competitor findings."
+          : "Analysis limitations are noted for this section."
+    );
     box.appendChild(notice);
   }
 
