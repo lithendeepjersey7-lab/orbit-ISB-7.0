@@ -640,11 +640,6 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
 .overview-metric__value { grid-row: span 2; color: var(--accent-dark); font-size: 23px; font-variant-numeric: tabular-nums; font-weight: 800; line-height: 1.15; letter-spacing: -0.045em; }
 .overview-metric__label { min-width: 0; color: var(--text); font-size: 11px; font-weight: 750; }
 .overview-metric__detail { grid-column: 1 / -1; min-width: 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
-.coverage-progress { grid-column: 1 / -1; width: 100%; height: 5px; margin-top: 4px; overflow: hidden; border: 0; border-radius: 999px; appearance: none; background: #eaebfa; }
-.coverage-progress::-webkit-progress-bar { border-radius: 999px; background: #eaebfa; }
-.coverage-progress::-webkit-progress-value { border-radius: 999px; background: var(--accent); }
-.coverage-progress::-moz-progress-bar { border-radius: 999px; background: var(--accent); }
-.coverage-note { margin: 12px 0 0; color: var(--muted); font-size: 10px !important; }
 
 .result-nav { display: flex; align-items: center; gap: 7px; margin: 0 0 18px; padding: 10px; overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: #fff; scrollbar-width: thin; }
 .result-nav__label { flex: 0 0 auto; margin: 0 4px; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: 0.09em; }
@@ -812,7 +807,6 @@ button:focus-visible, a:focus-visible, textarea:focus-visible,
 }
 .validation-overview h2 { color: #f0f5ff; }
 .validation-overview__summary { color: #b2c1d5; }
-.coverage-note { color: #97a8be; }
 .overview-metric {
   border-color: #2b3d58;
   background: rgba(9, 18, 32, 0.74);
@@ -820,10 +814,6 @@ button:focus-visible, a:focus-visible, textarea:focus-visible,
 .overview-metric__value { color: #9fc3ff; }
 .overview-metric__label { color: #dce7f7; }
 .overview-metric__detail { color: #9eacc0; }
-.coverage-progress { background: #273852; }
-.coverage-progress::-webkit-progress-bar { background: #273852; }
-.coverage-progress::-webkit-progress-value,
-.coverage-progress::-moz-progress-bar { background: #78aaff; }
 
 .result-nav {
   border-color: #293a55;
