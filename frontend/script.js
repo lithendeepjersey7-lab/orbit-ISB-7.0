@@ -106,7 +106,9 @@ async function validateIdea() {
       const coverage = getAnalysisCoverage(data);
       statusLine.textContent =
         "Validation ready · " + (Array.isArray(data.results) ? data.results.length : 0) +
-        " sources · " + coverage.score + "% analysis coverage";
+        " sources · " + coverage.ready + "/" + coverage.total +
+        " report sections ready · " + coverage.completed + "/" + coverage.total +
+        " AI-synthesized";
       resultsBox.scrollIntoView({
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
         block: "start"
@@ -253,11 +255,20 @@ function getAnalysisCoverage(data) {
     "advisor_unavailable"
   ]);
   const dimensions = ["market", "competitors", "swot", "mvp", "gtm"];
+  const ready = dimensions.filter(function (key) {
+    const section = data && data[key];
+    return Boolean(section) && typeof section === "object" && !Array.isArray(section);
+  }).length;
   const completed = dimensions.filter(function (key) {
     const section = data && data[key];
     return Boolean(section) && !unavailableModes.has(section.analysis_mode);
   }).length;
-  return { completed: completed, total: dimensions.length, score: Math.round(100 * completed / dimensions.length) };
+  return {
+    ready: ready,
+    completed: completed,
+    total: dimensions.length,
+    score: Math.round(100 * ready / dimensions.length)
+  };
 }
 
 function buildValidationOverview(data) {
@@ -272,7 +283,7 @@ function buildValidationOverview(data) {
   intro.className = "validation-overview__intro";
   const eyebrow = document.createElement("p");
   eyebrow.className = "step-label";
-  eyebrow.textContent = coverage.completed === coverage.total ? "VALIDATION COMPLETE" : "VALIDATION SNAPSHOT";
+  eyebrow.textContent = coverage.ready === coverage.total ? "VALIDATION COMPLETE" : "VALIDATION SNAPSHOT";
   intro.appendChild(eyebrow);
 
   const title = document.createElement("h2");
@@ -312,9 +323,9 @@ function buildValidationOverview(data) {
   metrics.className = "overview-metrics";
   const metricRows = [
     {
-      value: coverage.score + "%",
-      label: "AI analysis coverage",
-      detail: coverage.completed + " of " + coverage.total + " analysis sections completed",
+      value: coverage.ready + "/" + coverage.total,
+      label: "Report sections ready",
+      detail: coverage.ready + " populated · " + coverage.completed + " AI-synthesized",
       progress: coverage.score
     },
     {
@@ -353,7 +364,7 @@ function buildValidationOverview(data) {
       progress.className = "coverage-progress";
       progress.max = 100;
       progress.value = metric.progress;
-      progress.setAttribute("aria-label", "AI analysis coverage");
+      progress.setAttribute("aria-label", "Report sections ready");
       tile.appendChild(progress);
     }
     metrics.appendChild(tile);
@@ -362,7 +373,8 @@ function buildValidationOverview(data) {
 
   const note = document.createElement("p");
   note.className = "coverage-note";
-  note.textContent = "Coverage describes completed AI analyses, not the likelihood that the startup will succeed.";
+  note.textContent =
+    "Report readiness means section content is present. AI-synthesized counts exclude fallback drafts and search leads; neither measure is a startup success score.";
   card.appendChild(note);
   return card;
 }
