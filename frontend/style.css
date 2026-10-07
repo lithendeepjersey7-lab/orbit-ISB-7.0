@@ -537,10 +537,10 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
 .ask-about:hover, .suggested-question:hover { border-color: #c8caf8; background: #e9eaff; box-shadow: none; }
 .analysis-status {
   padding: 10px 12px;
-  border: 1px solid #f0dfb4;
+  border: 1px solid #c7d8f0;
   border-radius: 9px;
-  background: #fff9eb;
-  color: #805b16;
+  background: #f0f5fc;
+  color: #37577f;
   font-size: 12px !important;
 }
 
@@ -860,9 +860,9 @@ button:focus-visible, a:focus-visible, textarea:focus-visible,
   color: #ffd58a;
 }
 .analysis-status, .advisor-missing {
-  border: 1px solid #69552d;
-  background: #302718;
-  color: #f4d28f;
+  border: 1px solid #344d73;
+  background: #14243a;
+  color: #c0d5f3;
 }
 .agenterrors {
   border-color: #70404a;
@@ -934,6 +934,16 @@ button:focus-visible, a:focus-visible, textarea:focus-visible,
 .run-notice__details > summary { color: #b8a982; cursor: pointer; font-size: 10px; font-weight: 650; }
 .run-notice__details ul { max-height: 180px; overflow: auto; margin: 8px 0 0; padding-left: 17px; }
 .run-notice__details li { margin: 5px 0; color: #c5bba4; font-size: 10px; overflow-wrap: anywhere; }
+.run-notice--fallback {
+  border-color: #344d73;
+  background: linear-gradient(120deg, #111e31, #101827);
+  color: #c9d9ee;
+}
+.run-notice--fallback h3 { color: #b9d3fb; }
+.run-notice--fallback p { color: #c0cde0; }
+.run-notice--fallback .run-notice__details { border-top-color: #2d405c; }
+.run-notice--fallback .run-notice__details > summary { color: #aabbd2; }
+.run-notice--fallback .run-notice__details li { color: #adbad0; }
 
 .skip-link { background: #eaf2ff; color: #0d1b30; }
 ::selection { background: #3668ad; color: #fff; }
