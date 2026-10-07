@@ -8,6 +8,7 @@ SWOT, MVP, and go-to-market strategy in sequence.
                      +-> competitors -+-> swot -> mvp -> gtm -> END
 """
 
+import json
 import operator
 import time
 from typing import Annotated, Optional, TypedDict
@@ -18,19 +19,59 @@ from langgraph.graph import END, START, StateGraph
 # main.py as `agents.pipeline`. Those two contexts need different import paths.
 try:
     from web_search_agent import search_idea
-    from market_agent import analyse_market
-    from competitor_agent import analyse_competitors
-    from swot_agent import analyse_swot
-    from mvp_agent import recommend_mvp
-    from gtm_agent import develop_gtm_strategy
+    from market_agent import (
+        analyse_market,
+        _fallback_analysis as market_fallback,
+        parse_json as parse_market,
+    )
+    from competitor_agent import (
+        analyse_competitors,
+        _fallback_analysis as competitor_fallback,
+        parse_json as parse_competitors,
+    )
+    from swot_agent import (
+        analyse_swot,
+        _fallback_analysis as swot_fallback,
+        parse_json as parse_swot,
+    )
+    from mvp_agent import (
+        recommend_mvp,
+        _fallback_recommendation as mvp_fallback,
+        parse_json as parse_mvp,
+    )
+    from gtm_agent import (
+        develop_gtm_strategy,
+        _fallback_strategy as gtm_fallback,
+        parse_json as parse_gtm,
+    )
     from gemini_retry import take_failure
 except ImportError:
     from agents.web_search_agent import search_idea
-    from agents.market_agent import analyse_market
-    from agents.competitor_agent import analyse_competitors
-    from agents.swot_agent import analyse_swot
-    from agents.mvp_agent import recommend_mvp
-    from agents.gtm_agent import develop_gtm_strategy
+    from agents.market_agent import (
+        analyse_market,
+        _fallback_analysis as market_fallback,
+        parse_json as parse_market,
+    )
+    from agents.competitor_agent import (
+        analyse_competitors,
+        _fallback_analysis as competitor_fallback,
+        parse_json as parse_competitors,
+    )
+    from agents.swot_agent import (
+        analyse_swot,
+        _fallback_analysis as swot_fallback,
+        parse_json as parse_swot,
+    )
+    from agents.mvp_agent import (
+        recommend_mvp,
+        _fallback_recommendation as mvp_fallback,
+        parse_json as parse_mvp,
+    )
+    from agents.gtm_agent import (
+        develop_gtm_strategy,
+        _fallback_strategy as gtm_fallback,
+        parse_json as parse_gtm,
+    )
     from agents.gemini_retry import take_failure
 
 
@@ -73,21 +114,101 @@ def _fallback_notice(label: str, fallback_detail: str) -> str:
     return label + ": " + detail
 
 
+def _has_content(value, path=(), allow_empty_lists=()):
+    """Reject blank reports while allowing no verified competitors."""
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, dict):
+        return all(
+            _has_content(child, path + (key,), allow_empty_lists)
+            for key, child in value.items()
+        )
+    if isinstance(value, list):
+        if not value and path not in allow_empty_lists:
+            return False
+        return all(_has_content(child, path, allow_empty_lists) for child in value)
+    return value is not None
+
+
+def _usable_result(result, parser, allow_empty_lists=()):
+    """Require both the agent's schema and non-empty required report content."""
+    if not isinstance(result, dict):
+        return False
+    try:
+        if parser(json.dumps(result)) is None:
+            return False
+    except (TypeError, ValueError):
+        return False
+    return _has_content(
+        result,
+        allow_empty_lists={
+            ("competitors",),
+            ("research_leads",),
+            ("source_findings",),
+            *allow_empty_lists,
+        },
+    )
+
+
+def _unexpected_failure(label: str, error: Exception) -> str:
+    take_failure()
+    return "{} failed unexpectedly ({}); used a local fallback draft".format(
+        label, type(error).__name__
+    )
+
+
 def search_node(state: State) -> dict:
     """Milestone 1's agent, unchanged, as step one."""
     try:
-        return {"search": search_idea(state["idea"])}
+        result = search_idea(state["idea"])
+        if not isinstance(result, dict) or not isinstance(result.get("results"), list):
+            raise ValueError("search returned an incomplete response")
+        return {"search": result}
     except Exception as error:
-        return {"search": None, "errors": ["Web search failed: " + str(error)]}
+        empty_search = {
+            "idea": state["idea"],
+            "queries": [],
+            "categories": [],
+            "counts": {},
+            "summary": None,
+            "results": [],
+            "stats": {
+                "searches_run": 0,
+                "searches_succeeded": 0,
+                "raw_results": 0,
+                "duplicates_removed": 0,
+                "shown": 0,
+                "distinct_sites": 0,
+                "elapsed_seconds": 0.0,
+            },
+            "analysis_mode": "analysis_unavailable",
+            "analysis_note": "Live search failed; no external evidence is available for this run.",
+        }
+        return {
+            "search": empty_search,
+            "errors": [_unexpected_failure("Web search", error)],
+        }
 
 
 def market_node(state: State) -> dict:
-    result = analyse_market(
-        state["idea"],
-        (state.get("search") or {}).get("results", []),
-    )
-    if result is None:
-        return {"market": None, "errors": [_agent_failure("Market agent")]}
+    try:
+        result = analyse_market(
+            state["idea"],
+            (state.get("search") or {}).get("results", []),
+        )
+    except Exception as error:
+        return {
+            "market": market_fallback([], state["idea"]),
+            "errors": [_unexpected_failure("Market agent", error)],
+        }
+    if not _usable_result(result, parse_market):
+        error = _agent_failure("Market agent") if result is None else "incomplete or blank response"
+        return {
+            "market": market_fallback(
+                (state.get("search") or {}).get("results", []), state["idea"]
+            ),
+            "errors": ["Market agent returned no usable analysis: " + error],
+        }
     if result.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}:
         return {
             "market": result,
@@ -100,12 +221,24 @@ def market_node(state: State) -> dict:
 
 
 def competitor_node(state: State) -> dict:
-    result = analyse_competitors(
-        state["idea"],
-        (state.get("search") or {}).get("results", []),
-    )
-    if result is None:
-        return {"competitors": None, "errors": [_agent_failure("Competitor agent")]}
+    try:
+        result = analyse_competitors(
+            state["idea"],
+            (state.get("search") or {}).get("results", []),
+        )
+    except Exception as error:
+        return {
+            "competitors": competitor_fallback([]),
+            "errors": [_unexpected_failure("Competitor agent", error)],
+        }
+    if not _usable_result(result, parse_competitors):
+        error = _agent_failure("Competitor agent") if result is None else "incomplete or blank response"
+        return {
+            "competitors": competitor_fallback(
+                (state.get("search") or {}).get("results", [])
+            ),
+            "errors": ["Competitor agent returned no usable analysis: " + error],
+        }
     if result.get("analysis_mode") in {"analysis_unavailable", "evidence_summary"}:
         return {
             "competitors": result,
@@ -119,13 +252,21 @@ def competitor_node(state: State) -> dict:
 
 def swot_node(state: State) -> dict:
     """Run SWOT even with missing research; the agent labels any fallback draft."""
-    result = analyse_swot(
-        state["idea"],
-        state.get("market") or {},
-        state.get("competitors") or {},
-    )
-    if result is None:
-        return {"swot": None, "errors": [_agent_failure("SWOT agent")]}
+    market = state.get("market") or {}
+    competitors = state.get("competitors") or {}
+    try:
+        result = analyse_swot(state["idea"], market, competitors)
+    except Exception as error:
+        return {
+            "swot": swot_fallback(state["idea"], market, competitors),
+            "errors": [_unexpected_failure("SWOT agent", error)],
+        }
+    if not _usable_result(result, parse_swot):
+        error = _agent_failure("SWOT agent") if result is None else "incomplete or blank response"
+        return {
+            "swot": swot_fallback(state["idea"], market, competitors),
+            "errors": ["SWOT agent returned no usable analysis: " + error],
+        }
     if result.get("analysis_mode") == "conservative_fallback":
         return {
             "swot": result,
@@ -139,14 +280,27 @@ def swot_node(state: State) -> dict:
 
 def mvp_node(state: State) -> dict:
     """Recommend an MVP from available research, or the idea alone if needed."""
-    result = recommend_mvp(
-        state["idea"],
-        state.get("market") or {},
-        state.get("competitors") or {},
-        state.get("swot"),
-    )
-    if result is None:
-        return {"mvp": None, "errors": [_agent_failure("MVP agent")]}
+    market = state.get("market") or {}
+    competitors = state.get("competitors") or {}
+    try:
+        result = recommend_mvp(
+            state["idea"], market, competitors, state.get("swot")
+        )
+    except Exception as error:
+        return {
+            "mvp": mvp_fallback(state["idea"], market, competitors),
+            "errors": [_unexpected_failure("MVP agent", error)],
+        }
+    if not _usable_result(
+        result,
+        parse_mvp,
+        allow_empty_lists=(("should_have_features",), ("nice_to_have_features",)),
+    ):
+        error = _agent_failure("MVP agent") if result is None else "incomplete or blank response"
+        return {
+            "mvp": mvp_fallback(state["idea"], market, competitors),
+            "errors": ["MVP agent returned no usable analysis: " + error],
+        }
     if result.get("analysis_mode") == "conservative_fallback":
         return {
             "mvp": result,
@@ -160,16 +314,23 @@ def mvp_node(state: State) -> dict:
 
 def gtm_node(state: State) -> dict:
     """Create a GTM strategy after the existing analyses and MVP stage."""
-    if not state.get("market") and not state.get("competitors") and not state.get("swot"):
-        return {"gtm": None, "errors": ["GTM agent skipped: no upstream analysis available"]}
-    result = develop_gtm_strategy(
-        state["idea"],
-        state.get("market") or {},
-        state.get("competitors") or {},
-        state.get("swot") or {},
-    )
-    if result is None:
-        return {"gtm": None, "errors": [_agent_failure("GTM agent")]}
+    market = state.get("market") or {}
+    competitors = state.get("competitors") or {}
+    try:
+        result = develop_gtm_strategy(
+            state["idea"], market, competitors, state.get("swot") or {}
+        )
+    except Exception as error:
+        return {
+            "gtm": gtm_fallback(state["idea"], market),
+            "errors": [_unexpected_failure("GTM agent", error)],
+        }
+    if not _usable_result(result, parse_gtm):
+        error = _agent_failure("GTM agent") if result is None else "incomplete or blank response"
+        return {
+            "gtm": gtm_fallback(state["idea"], market),
+            "errors": ["GTM agent returned no usable analysis: " + error],
+        }
     if result.get("analysis_mode") == "conservative_fallback":
         return {
             "gtm": result,

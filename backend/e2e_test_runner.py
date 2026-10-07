@@ -487,6 +487,45 @@ def _run_idea_specific_fallback_checks():
     return failures
 
 
+def _run_pipeline_emergency_fallback_checks(app_module, pipeline_module):
+    """Ensure an arbitrary idea still produces every section when all services fail."""
+    idea = "A biodegradable seaweed-based packaging service for independent takeaway restaurants"
+    failures = []
+    with (
+        patch.object(pipeline_module, "search_idea", side_effect=RuntimeError("search offline")),
+        patch.object(pipeline_module, "analyse_market", side_effect=RuntimeError("market offline")),
+        patch.object(pipeline_module, "analyse_competitors", return_value={"bad": "response"}),
+        patch.object(pipeline_module, "analyse_swot", side_effect=RuntimeError("SWOT offline")),
+        patch.object(pipeline_module, "recommend_mvp", return_value=None),
+        patch.object(pipeline_module, "develop_gtm_strategy", side_effect=RuntimeError("GTM offline")),
+    ):
+        result = pipeline_module.validate(idea)
+
+    for section in ("market", "competitors", "swot", "mvp", "gtm"):
+        value = result.get(section)
+        if not isinstance(value, dict) or not value.get("analysis_mode"):
+            failures.append("unexpected outage left {} missing or unlabeled".format(section))
+    if result.get("stats", {}).get("searches_run") != 0 or not any(
+        "Web search failed" in error for error in result.get("errors", [])
+    ):
+        failures.append("search outage did not return an explicit unavailable status")
+    if not result.get("swot", {}).get("risks"):
+        failures.append("SWOT outage did not return structured risks")
+    if not result.get("mvp", {}).get("build_phases"):
+        failures.append("MVP outage did not return a phased build plan")
+    if not result.get("gtm", {}).get("first_100_users", {}).get("plan"):
+        failures.append("GTM outage did not return a first-user plan")
+    if len(result.get("errors", [])) < 5:
+        failures.append("service failures were not surfaced in the report")
+    report = app_module.generate_report(result)
+    if (
+        report.media_type != "application/pdf"
+        or not report.body.startswith(b"%PDF")
+    ):
+        failures.append("emergency fallback result did not produce a valid PDF")
+    return failures
+
+
 def _run_idea(app_module, pipeline_module, domain, idea):
     fixtures = _fixtures(domain, idea)
     events = []
@@ -1079,6 +1118,9 @@ def main():
     schema_failures = _run_response_validation_checks()
     retry_failures, retry_note = _run_retry_and_advisor_checks(app_module, pipeline_module)
     fallback_failures = _run_idea_specific_fallback_checks()
+    outage_failures = _run_pipeline_emergency_fallback_checks(
+        app_module, pipeline_module
+    )
     results = [
         _run_idea(app_module, pipeline_module, domain, idea)
         for domain, idea in IDEAS
@@ -1105,6 +1147,13 @@ def main():
             "FAIL: " + "; ".join(fallback_failures)
             if fallback_failures
             else "PASS for study groups, SaaS, consumer, hardware, marketplace, and EdTech."
+        )
+    )
+    print(
+        "Unexpected pipeline outage fallback checks (novel idea): {}\n".format(
+            "FAIL: " + "; ".join(outage_failures)
+            if outage_failures
+            else "PASS: every report section survives search and agent failures."
         )
     )
     print("| Domain | Startup idea | Pipeline | Search | Market | Competitor | SWOT | MVP | GTM | Report | Elapsed | Errors |")
@@ -1161,7 +1210,13 @@ def main():
     print("- Offline checks verify response shape and curated fallback domain fit, not market truth or customer demand.")
     print("- Gemini-generated synthesis still requires an available provider quota; fallback drafts are clearly labelled.")
 
-    return 0 if all(item["completed"] for item in results) and not schema_failures and not retry_failures and not fallback_failures else 1
+    return 0 if (
+        all(item["completed"] for item in results)
+        and not schema_failures
+        and not retry_failures
+        and not fallback_failures
+        and not outage_failures
+    ) else 1
 
 
 if __name__ == "__main__":
